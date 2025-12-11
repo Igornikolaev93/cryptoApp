@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useRef } from 'react';
 import axios from 'axios';
 import './App.css';
@@ -261,8 +262,13 @@ function App() {
       const res = await axios.post('http://localhost:5000/api/auth/login', loginData);
       localStorage.setItem('token', res.data.token);
       axios.defaults.headers.common['x-auth-token'] = res.data.token;
-      // You can fetch user data here and set it to the user state
+      
+      // Fetch user data
+      const userRes = await axios.get('http://localhost:5000/api/auth/user');
+      setUser(userRes.data);
+
       setShowLoginModal(false);
+      openProfile();
     } catch (error) {
       console.error('Login failed:', error);
       alert('Неверный email или пароль');
@@ -575,16 +581,16 @@ function App() {
           <h2 className="section-title">Популярные криптовалюты</h2>
           <div className="asset-list">
             {loading ? (
-              <p>Loading...</p>
+              <p>Загрузка...</p>
             ) : error ? (
-              <p>Error: {error}</p>
+              <p>Ошибка: {error}</p>
             ) : (
               coins.slice(0, 10).map(coin => (
                 <div key={coin.id} className="asset">
                   <img src={coin.image} alt={coin.name} width="50" />
                   <h2>{coin.name} ({coin.symbol.toUpperCase()})</h2>
                   <p>Price: ${coin.current_price.toLocaleString()}</p>
-                  <button onClick={() => handleBuy(coin)}>Buy</button>
+                  <button onClick={() => handleBuy(coin)}>Купить</button>
                 </div>
               ))
             )}

@@ -3,9 +3,8 @@ const router = express.Router();
 const pool = require('../db');
 const auth = require('../middleware/auth');
 
-// @route   POST api/operations
-// @desc    Create an operation
-// @access  Private
+
+
 router.post('/', auth, async (req, res) => {
   const { operation_type, crypto_currency, crypto_amount, fiat_currency, fiat_amount, payment_method, wallet_address, status } = req.body;
   const userId = req.user.userId;
@@ -23,9 +22,7 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-// @route   GET api/operations
-// @desc    Get all operations for a user
-// @access  Private
+
 router.get('/', auth, async (req, res) => {
   const userId = req.user.userId;
 
