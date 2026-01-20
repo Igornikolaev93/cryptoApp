@@ -1,7 +1,7 @@
 {
   "name": "my-react-app",
   "version": "0.1.0",
-  "homepage": "https://github.com/Igornikolaev93/cryptoApp/tree/main/my-react-app/",
+  "homepage": "https://igornikolaev93.github.io/CryptoApp",
   "private": true,
   "dependencies": {
     "@testing-library/dom": "^10.4.1",
