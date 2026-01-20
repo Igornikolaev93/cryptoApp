@@ -21,3 +21,9 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Игнорировать папку server
+/server/
+
+# Игнорировать node_modules в server если есть
+/server/node_modules/
