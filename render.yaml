@@ -1,32 +1,18 @@
 services:
-  # Бэкенд сервис (Node.js)
+  # Бэкенд (создается первым)
   - type: web
-    name: myapp-backend
+    name: backend-service
     env: node
     region: oregon
     plan: free
     buildCommand: cd server && npm install
     startCommand: cd server && node server.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 10000
-    healthCheckPath: /health
-    autoDeploy: true
 
-  # Фронтенд сервис (React)
+  # Фронтенд (получит URL после создания бэкенда)
   - type: web
-    name: myapp-frontend
+    name: frontend-service
     env: static
-    region: oregon
     plan: free
     buildCommand: cd client && npm ci && npm run build
     staticPublishPath: ./client/build
-    envVars:
-      - key: REACT_APP_API_URL
-        fromService:
-          type: web
-          name: myapp-backend
-          property: url
-    autoDeploy: true
+    # envVars добавим вручную после создания
