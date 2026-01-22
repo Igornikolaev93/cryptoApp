@@ -1,28 +1,128 @@
+// backend/db.js
 const { Pool } = require('pg');
 require('dotenv').config();
 
-const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_DATABASE,
-  password: process.env.DB_PASSWORD,
-  port: parseInt(process.env.DB_PORT) || 5432,
-  ssl: {
-    rejectUnauthorized: false // ОБЯЗАТЕЛЬНО для Render
-  },
-  // Дополнительные настройки пула
-  max: 10, // максимальное количество клиентов в пуле
-  idleTimeoutMillis: 30000, // время бездействия перед закрытием
-  connectionTimeoutMillis: 2000, // время ожидания подключения
-});
+let pool = null;
+let isDatabaseConnected = false;
 
-// Проверка подключения при старте
-pool.on('connect', () => {
-  console.log('✅ Подключение к базе данных установлено');
-});
+/**
+ * Инициализация подключения к базе данных
+ */
+function initializeDatabase() {
+  if (!process.env.DATABASE_URL) {
+    console.log('⚠️ DATABASE_URL не настроен в Environment Variables');
+    return null;
+  }
 
-pool.on('error', (err) => {
-  console.error('❌ Ошибка подключения к базе:', err.message);
-});
+  try {
+    console.log('🔧 Инициализация подключения к базе данных...');
+    
+    pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: {
+        rejectUnauthorized: false
+      },
+      connectionTimeoutMillis: 15000,
+      idleTimeoutMillis: 30000,
+      max: 10
+    });
 
-module.exports = pool;
+    // Тестируем подключение
+    pool.connect((err, client, release) => {
+      if (err) {
+        console.error('❌ Ошибка подключения к базе:', err.message);
+        isDatabaseConnected = false;
+      } else {
+        console.log('✅ Успешное подключение к PostgreSQL!');
+        isDatabaseConnected = true;
+        release();
+      }
+    });
+
+    // Обработчик ошибок пула
+    pool.on('error', (err) => {
+      console.error('❌ Неожиданная ошибка в пуле соединений:', err.message);
+      isDatabaseConnected = false;
+    });
+
+    return pool;
+  } catch (error) {
+    console.error('❌ Ошибка инициализации пула:', error.message);
+    return null;
+  }
+}
+
+/**
+ * Безопасное выполнение запросов к базе
+ */
+async function query(sql, params = []) {
+  if (!pool || !isDatabaseConnected) {
+    console.log('⚠️ База данных не подключена, пытаемся переподключиться...');
+    initializeDatabase();
+    throw new Error('База данных не подключена или спит. Пожалуйста, попробуйте снова через 30 секунд.');
+  }
+
+  try {
+    const client = await pool.connect();
+    const result = await client.query(sql, params);
+    client.release();
+    return result;
+  } catch (error) {
+    console.error('❌ Ошибка выполнения запроса:', error.message);
+    
+    // Если ошибка связана с подключением
+    if (error.code === '57P01' || 
+        error.message.includes('connection') || 
+        error.message.includes('terminated') ||
+        error.message.includes('getaddrinfo')) {
+      console.log('🔄 База данных спит, переподключаемся...');
+      isDatabaseConnected = false;
+      initializeDatabase();
+      throw new Error('База данных спит. Пожалуйста, попробуйте снова через 30 секунд.');
+    }
+    
+    throw error;
+  }
+}
+
+/**
+ * Проверка подключения к базе
+ */
+async function checkConnection() {
+  try {
+    if (!pool) {
+      return { connected: false, message: 'Пул не инициализирован' };
+    }
+    
+    const client = await pool.connect();
+    await client.query('SELECT 1');
+    client.release();
+    return { connected: true, message: 'База данных подключена' };
+  } catch (error) {
+    return { connected: false, message: error.message };
+  }
+}
+
+// Инициализируем подключение при загрузке модуля
+initializeDatabase();
+
+// Авто-проверка подключения каждые 10 минут
+setInterval(async () => {
+  if (isDatabaseConnected) {
+    try {
+      await query('SELECT 1');
+      console.log('⏰ Keep-alive ping отправлен');
+    } catch (error) {
+      console.log('⚠️ База данных уснула');
+      isDatabaseConnected = false;
+    }
+  }
+}, 10 * 60 * 1000);
+
+module.exports = {
+  query,
+  pool: () => pool,
+  isConnected: () => isDatabaseConnected,
+  checkConnection,
+  reconnect: initializeDatabase
+};

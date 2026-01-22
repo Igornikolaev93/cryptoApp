@@ -1,6 +1,11 @@
+// backend/index.js
 const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
+
+// Импорт маршрутов
+const authRoutes = require('./routes/auth');
+const operationRoutes = require('./routes/operations');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -133,9 +138,11 @@ async function safeQuery(sql, params = []) {
 // Middleware
 app.use(cors({
   origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
+
 app.use(express.json());
 
 // Middleware для логирования запросов
@@ -154,16 +161,29 @@ app.get('/', (req, res) => {
     database: isDatabaseConnected ? '✅ Подключена' : '⏳ Спит/Подключается',
     server_time: new Date().toISOString(),
     endpoints: {
-      health: '/health',
-      api: '/api',
-      db_status: '/api/db-status',
-      db_info: '/api/db-info',
-      wake_db: '/api/wake-db',
-      init_db: '/api/init-db',
-      tables: '/api/tables',
-      seed_data: '/api/seed-data',
-      users: '/api/users',
-      operations: '/api/operations'
+      auth: {
+        register: 'POST /api/auth/register',
+        login: 'POST /api/auth/login',
+        user: 'GET /api/auth/user (requires auth)'
+      },
+      operations: {
+        create: 'POST /api/operations (requires auth)',
+        list: 'GET /api/operations (requires auth)',
+        get: 'GET /api/operations/:id (requires auth)',
+        update: 'PUT /api/operations/:id (requires auth)',
+        delete: 'DELETE /api/operations/:id (requires auth)'
+      },
+      system: {
+        health: '/health',
+        db_status: '/api/db-status',
+        db_info: '/api/db-info',
+        wake_db: '/api/wake-db',
+        init_db: '/api/init-db',
+        tables: '/api/tables',
+        seed_data: '/api/seed-data',
+        users: '/api/users',
+        operations: '/api/operations'
+      }
     }
   });
 });
@@ -176,7 +196,7 @@ app.get('/health', (req, res) => {
     database: isDatabaseConnected ? 'connected' : 'sleeping',
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
-    note: 'База на free плане спит после 15 минут неактивности'
+    note: 'База на free плане спит после 90 дней неактивности'
   });
 });
 
@@ -189,7 +209,7 @@ app.get('/api/db-status', (req, res) => {
       connected: isDatabaseConnected,
       url_configured: !!process.env.DATABASE_URL,
       plan: 'Free',
-      sleep_after: '15 минут неактивности',
+      sleep_after: '90 дней неактивности',
       wake_up_time: '30-60 секунд'
     },
     actions: [
@@ -462,7 +482,7 @@ app.get('/api/seed-data', async (req, res) => {
   }
 });
 
-// 9. Получить всех пользователей
+// 9. Получить всех пользователей (только для админа/отладки)
 app.get('/api/users', async (req, res) => {
   if (!isDatabaseConnected) {
     return res.status(503).json({
@@ -499,7 +519,7 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
-// 10. Получить все операции
+// 10. Получить все операции (только для админа/отладки)
 app.get('/api/operations', async (req, res) => {
   if (!isDatabaseConnected) {
     return res.status(503).json({
@@ -555,24 +575,60 @@ app.get('/api/operations', async (req, res) => {
   }
 });
 
+// ========== ПОДКЛЮЧЕНИЕ МАРШРУТОВ ==========
+
+// Аутентификация
+app.use('/api/auth', authRoutes);
+
+// Операции (требуют аутентификации)
+app.use('/api/operations', operationRoutes);
+
+// ========== ОБРАБОТКА ОШИБОК ==========
+
 // 11. Обработка 404
 app.use('*', (req, res) => {
   res.status(404).json({
     success: false,
     message: 'Маршрут не найден',
     path: req.originalUrl,
-    available_routes: [
-      'GET /',
-      'GET /health',
-      'GET /api/db-status',
-      'GET /api/db-info',
-      'GET /api/wake-db',
-      'GET /api/init-db',
-      'GET /api/tables',
-      'GET /api/seed-data',
-      'GET /api/users',
-      'GET /api/operations'
-    ],
+    available_routes: {
+      auth: {
+        register: 'POST /api/auth/register',
+        login: 'POST /api/auth/login',
+        user: 'GET /api/auth/user (requires auth)'
+      },
+      operations: {
+        create: 'POST /api/operations (requires auth)',
+        list: 'GET /api/operations (requires auth)',
+        get: 'GET /api/operations/:id (requires auth)',
+        update: 'PUT /api/operations/:id (requires auth)',
+        delete: 'DELETE /api/operations/:id (requires auth)'
+      },
+      system: {
+        home: 'GET /',
+        health: 'GET /health',
+        db_status: 'GET /api/db-status',
+        db_info: 'GET /api/db-info',
+        wake_db: 'GET /api/wake-db',
+        init_db: 'GET /api/init-db',
+        tables: 'GET /api/tables',
+        seed_data: 'GET /api/seed-data',
+        users: 'GET /api/users',
+        operations: 'GET /api/operations'
+      }
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Обработчик ошибок
+app.use((err, req, res, next) => {
+  console.error('❌ Ошибка сервера:', err.stack);
+  
+  res.status(err.status || 500).json({
+    success: false,
+    message: 'Внутренняя ошибка сервера',
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong',
     timestamp: new Date().toISOString()
   });
 });
@@ -583,7 +639,7 @@ app.use('*', (req, res) => {
 app.listen(PORT, async () => {
   console.log('='.repeat(50));
   console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log(`🌐 Доступен по адресу: https://cryptoapp-backend.onrender.com`);
+  console.log(`🌐 Доступен по адресу: http://localhost:${PORT}`);
   console.log(`🗄️ База данных: ${process.env.DATABASE_URL ? 'Настроена' : 'НЕ настроена!'}`);
   
   if (process.env.DATABASE_URL) {
@@ -591,16 +647,17 @@ app.listen(PORT, async () => {
     initializeDatabase();
   } else {
     console.log(`❌ ВАЖНО: Добавьте DATABASE_URL в Environment Variables!`);
-    console.log(`💡 Действие: Render Dashboard → cryptoapp-backend → Environment`);
   }
   
   console.log('='.repeat(50));
-  console.log(`📋 Полезные ссылки:`);
-  console.log(`   📊 Статус: https://cryptoapp-backend.onrender.com/`);
-  console.log(`   💚 Health: https://cryptoapp-backend.onrender.com/health`);
-  console.log(`   🗄️ DB Status: https://cryptoapp-backend.onrender.com/api/db-status`);
-  console.log(`   🔔 Wake DB: https://cryptoapp-backend.onrender.com/api/wake-db`);
-  console.log(`   🛠️ Init DB: https://cryptoapp-backend.onrender.com/api/init-db`);
+  console.log(`📋 Основные маршруты:`);
+  console.log(`   📊 Статус: http://localhost:${PORT}/`);
+  console.log(`   💚 Health: http://localhost:${PORT}/health`);
+  console.log(`   🔐 Регистрация: POST http://localhost:${PORT}/api/auth/register`);
+  console.log(`   🔑 Логин: POST http://localhost:${PORT}/api/auth/login`);
+  console.log(`   🗄️ DB Status: http://localhost:${PORT}/api/db-status`);
+  console.log(`   🔔 Wake DB: http://localhost:${PORT}/api/wake-db`);
+  console.log(`   🛠️ Init DB: http://localhost:${PORT}/api/init-db`);
   console.log('='.repeat(50));
 });
 
