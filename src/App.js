@@ -4,6 +4,10 @@ import axios from 'axios';
 import './App.css';
 import UserProfile from './UserProfile';
 
+const API_URL = process.env.NODE_ENV === 'production' 
+  ? 'https://cryptoapp-backend.onrender.com' 
+  : 'http://localhost:5000';
+
 function App() {
   const [coins, setCoins] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -217,7 +221,7 @@ function App() {
         status: 'pending'
       };
 
-      await axios.post('http://localhost:5000/api/operations', operationData, {
+      await axios.post(`${API_URL}/api/operations`, operationData, {
         headers: { 'x-auth-token': token }
       });
 
@@ -259,12 +263,12 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post('http://localhost:5000/api/auth/login', loginData);
+      const res = await axios.post(`${API_URL}/api/auth/login`, loginData);
       localStorage.setItem('token', res.data.token);
       axios.defaults.headers.common['x-auth-token'] = res.data.token;
       
       // Fetch user data
-      const userRes = await axios.get('http://localhost:5000/api/auth/user');
+      const userRes = await axios.get(`${API_URL}/api/auth/user`);
       setUser(userRes.data);
 
       setShowLoginModal(false);
@@ -278,7 +282,7 @@ function App() {
   const handleRegister = async (e) => {
     e.preventDefault();
     try {
-      await axios.post('http://localhost:5000/api/auth/register', registerData);
+      await axios.post(`${API_URL}/api/auth/register`, registerData);
       alert('Регистрация прошла успешно! Теперь вы можете войти в систему.');
       setShowRegisterModal(false);
       setShowLoginModal(true);
@@ -298,7 +302,7 @@ function App() {
 
   const openProfile = async () => {
     try {
-      const res = await axios.get('http://localhost:5000/api/operations');
+      const res = await axios.get(`${API_URL}/api/operations`);
       setUserOperations(res.data);
       setShowProfileModal(true);
     } catch (error) {
