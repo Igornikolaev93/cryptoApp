@@ -1,23 +1,8 @@
 services:
-  # Бэкенд (Web Service) - использует "Free"
   - type: web
     name: backend
     env: node
     region: oregon
-    plan: Free  # ← с большой буквы!
+    plan: Free  # ← ВАЖНО: Free
     buildCommand: cd server && npm install
     startCommand: cd server && node server.js
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 10000
-
-# Фронтенд (Static Site) - отдельный раздел
-staticSites:
-  - name: frontend
-    buildCommand: cd client && npm ci && npm run build
-    publishPath: ./client/build
-    envVars:
-      - key: REACT_APP_API_URL
-        value: https://backend.onrender.com  # обновите после создания
