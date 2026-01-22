@@ -56,6 +56,25 @@ app.get('/api/db-test', async (req, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Welcome to CryptoApp Backend API',
+    version: '1.0.0',
+    status: 'online',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      root: '/',
+      health: '/health',
+      api: '/api',
+      dbTest: '/api/db-test',
+      initDb: '/api/init-db',
+      users: '/api/users',
+      operations: '/api/operations'
+    },
+    documentation: 'Use the endpoints above to interact with the API'
+  });
+});
+
 // Создание таблиц из вашего database.sql
 app.get('/api/init-db', async (req, res) => {
   try {
