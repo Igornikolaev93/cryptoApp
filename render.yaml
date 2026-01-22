@@ -1,0 +1,32 @@
+services:
+  # Бэкенд сервис (Node.js)
+  - type: web
+    name: myapp-backend
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: cd server && npm install
+    startCommand: cd server && node server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    healthCheckPath: /health
+    autoDeploy: true
+
+  # Фронтенд сервис (React)
+  - type: web
+    name: myapp-frontend
+    env: static
+    region: oregon
+    plan: free
+    buildCommand: cd client && npm ci && npm run build
+    staticPublishPath: ./client/build
+    envVars:
+      - key: REACT_APP_API_URL
+        fromService:
+          type: web
+          name: myapp-backend
+          property: url
+    autoDeploy: true
