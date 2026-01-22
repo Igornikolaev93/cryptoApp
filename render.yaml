@@ -5,7 +5,7 @@ services:
     env: node
     plan: Free
     buildCommand: cd backend && npm install
-    startCommand: cd backend && node server.js
+    startCommand: cd backend && node index.js
     envVars:
       - key: PORT
         value: 10000
