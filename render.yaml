@@ -1,37 +1,28 @@
 # Render Blueprint Configuration
-# Full-stack CryptoApp with React frontend, Node.js backend, and PostgreSQL
+# Full-stack CryptoApp с подключением к Supabase PostgreSQL
 
 services:
-  # ========== БЭКЕНД (Node.js + Express + PostgreSQL) ==========
+  # ========== БЭКЕНД (Node.js + Express + Supabase PostgreSQL) ==========
   - type: web
     name: cryptoapp-backend
     env: node
-    region: oregon  # или frankfurt для Европы
-    plan: Free
+    region: oregon  # или frankfurt, singapore
+    plan: free
     buildCommand: cd backend && npm install
     startCommand: cd backend && node index.js
     envVars:
       - key: PORT
         value: 10000
       - key: NODE_ENV
-        value: postgresql://postgres:Ybrjkftdbujhm16_@db.hklubdpkgwwaiwfhiusg.supabase.co:5432/postgres
+        value: production
       - key: DATABASE_URL
-        fromDatabase:
-          name: cryptoapp-db
-          property: connectionString
+        value: postgresql://postgres:Ybrjkftdbujhm16_@db.hklubdpkgwwaiwfhiusg.supabase.co:5432/postgres
+      - key: JWT_SECRET
+        value: cryptoapp-super-secret-jwt-key-2025-change-in-production
     healthCheckPath: /health
     autoDeploy: true
-    routes:
-      - type: rewrite
-        source: /api/*
-        destination: /api/*
-    # Дополнительные настройки для бесплатного плана
-    disk:
-      name: backend-data
-      mountPath: /data
-      sizeGB: 1
 
-  # ========== ФРОНТЕНД (React из корня) ==========
+  # ========== ФРОНТЕНД (React) ==========
   - type: web
     name: cryptoapp-frontend
     env: static
@@ -39,18 +30,11 @@ services:
     staticPublishPath: ./build
     envVars:
       - key: REACT_APP_API_URL
-        fromService:
-          type: web
-          name: cryptoapp-backend
-          property: host
+        value: https://cryptoapp-backend.onrender.com
       - key: REACT_APP_ENVIRONMENT
         value: production
     autoDeploy: true
-    # Настройки для SPA (React Router)
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
+    # Настройки заголовков для SPA и кеширования
     headers:
       - path: /*
         name: Cache-Control
@@ -58,33 +42,12 @@ services:
       - path: /static/*
         name: Cache-Control
         value: public, max-age=31536000, immutable
-
-  # ========== CRON JOB для пробуждения базы (опционально) ==========
-  - type: cron
-    name: keep-db-awake
-    schedule: "*/14 * * * *"  # Каждые 14 минут
-    plan: Free
-    region: oregon
-    buildCommand: echo "No build needed for cron"
-    startCommand: curl -s https://cryptoapp-backend.onrender.com/health > /dev/null
-    envVars:
-      - key: CRON_ENABLED
-        value: "true"
-
-# ========== БАЗА ДАННЫХ (PostgreSQL) ==========
-databases:
-  - name: cryptoapp-db
-    databaseName: cryptoapp
-    user: cryptoapp_user
-    plan: free
-    region: oregon
-    # Дополнительные настройки базы
-    ipAllowList:
-      - source: 0.0.0.0/0
-        description: "Allow all (for Render services)"
-    # Автоматические backup (для paid планов)
-    # backupRetentionCount: 7
-    # backupSchedule: "0 2 * * *"  # Ежедневно в 2 AM
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
 
 # ========== ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ (общие) ==========
 envVarGroups:
@@ -96,12 +59,5 @@ envVarGroups:
         value: "false"
       - key: GENERATE_SOURCEMAP
         value: "false"
-
-# ========== DNS И ДОМЕНЫ (опционально) ==========
-# domains:
-#   - name: api.cryptoapp.example.com
-#     type: CNAME
-#     value: cryptoapp-backend.onrender.com
-#   - name: cryptoapp.example.com
-#     type: CNAME
-#     value: cryptoapp-frontend.onrender.com
+      - key: DISABLE_ESLINT_PLUGIN
+        value: "true"
