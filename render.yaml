@@ -16,9 +16,9 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        value: postgresql://postgres:Ybrjkftdbujhm16_@db.hklubdpkgwwaiwfhiusg.supabase.co:5432/postgres
+        value: postgresql://postgres:Ybrjkftdbujhm16@db.kbvbckmklqljipzvhmno.supabase.co:5432/postgres
       - key: JWT_SECRET
-        value: cryptoapp-super-secret-jwt-key-2025-change-in-production
+        value: e778a91fd82da64f16fff3c0dce031d04a01218e3a32f0f3c9cf8a1432d79071
     healthCheckPath: /health
     autoDeploy: true
 
