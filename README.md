@@ -1,72 +1,43 @@
-# Getting Started with Create React App
+# CryptoExchange - Криптовалютный обменник
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+[![React](https://img.shields.io/badge/React-18.2.0-61DAFB?logo=react)](https://reactjs.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-## Available Scripts
+Современный веб-интерфейс для безопасного обмена криптовалют с интеграцией реальных курсов и системой аутентификации.
 
-In the project directory, you can run:
+## 🌟 Особенности
 
-### `npm start`
+- **Реальные курсы** - Интеграция с CoinGecko API для актуальных цен
+- **Калькулятор обмена** - Мгновенный расчет сумм с поддержкой 5+ криптовалют
+- **Система аутентификации** - JWT-токены для безопасного входа и регистрации
+- **Управление операциями** - История всех транзакций в личном кабинете
+- **Адаптивный дизайн** - Полная поддержка мобильных устройств
+- **Модальные окна** - Удобные формы для ввода данных и вывода средств
+- **Автосброс форм** - Интеллектуальный сброс при прокрутке страницы
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## 🚀 Технологии
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+### Frontend
+- **React 18** - Современный фреймворк для UI
+- **Axios** - HTTP-клиент для API запросов
+- **CSS3** - Кастомные стили с поддержкой тем
 
-### `npm test`
+### Backend (Требуется отдельный сервер)
+- **Node.js** - Серверная логика
+- **JWT** - Аутентификация и безопасность
+- **MongoDB/PostgreSQL** - Хранение данных
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+### API Интеграции
+- **CoinGecko API** - Криптовалютные курсы
 
-### `npm run build`
+## 📦 Установка и запуск
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### Предварительные требования
+- Node.js (v16+)
+- npm или yarn
+- Бэкенд сервер (см. документацию)
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
-# cryptoApp
-# cryptoApp
+### Шаг 1: Клонирование репозитория
+```bash
+git clone https://github.com/yourusername/crypto-exchange.git
+cd crypto-exchange
