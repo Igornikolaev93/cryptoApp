@@ -1,216 +1,160 @@
 // backend/routes/operations.js
 const express = require('express');
+const jwt = require('jsonwebtoken');
+const db = require('../db');
+
 const router = express.Router();
-const { query } = require('../db'); // Изменено
-const auth = require('../middleware/auth');
 
-// Создание новой операции
-router.post('/', auth, async (req, res) => {
-  const { 
-    operation_type, 
-    crypto_currency, 
-    crypto_amount, 
-    fiat_currency, 
-    fiat_amount, 
-    payment_method, 
-    wallet_address, 
-    status = 'pending' 
-  } = req.body;
-  
-  const userId = req.user.userId;
+// Middleware для проверки токена
+const auth = async (req, res, next) => {
+    try {
+        const token = req.header('x-auth-token');
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                message: 'Нет токена авторизации'
+            });
+        }
 
-  // Валидация
-  if (!operation_type || !crypto_currency || !crypto_amount) {
-    return res.status(400).json({ 
-      error: 'Тип операции, криптовалюта и сумма обязательны' 
-    });
-  }
-
-  try {
-    const newOperation = await query(
-      `INSERT INTO operations (
-        user_id, operation_type, crypto_currency, crypto_amount, 
-        fiat_currency, fiat_amount, payment_method, wallet_address, status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [userId, operation_type, crypto_currency, crypto_amount, 
-       fiat_currency, fiat_amount, payment_method, wallet_address, status]
-    );
-
-    res.json({
-      success: true,
-      message: 'Операция успешно создана',
-      operation: newOperation.rows[0]
-    });
-  } catch (err) {
-    console.error('❌ Ошибка создания операции:', err.message);
-    
-    // Специфичные ошибки базы данных
-    if (err.message.includes('База данных спит') || err.message.includes('не подключена')) {
-      return res.status(503).json({ 
-        error: 'База данных спит. Пожалуйста, попробуйте снова через 30 секунд.' 
-      });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        req.user = decoded;
+        next();
+    } catch (error) {
+        res.status(401).json({
+            success: false,
+            message: 'Недействительный токен'
+        });
     }
-    
-    res.status(500).json({ error: 'Ошибка сервера при создании операции' });
-  }
+};
+
+// Создание операции
+router.post('/', auth, async (req, res) => {
+    try {
+        const {
+            operation_type,
+            crypto_currency,
+            crypto_amount,
+            fiat_currency,
+            fiat_amount,
+            payment_method,
+            wallet_address,
+            status = 'pending'
+        } = req.body;
+
+        const result = await db.query(
+            `INSERT INTO operations (
+                user_id, operation_type, crypto_currency, crypto_amount,
+                fiat_currency, fiat_amount, payment_method, wallet_address, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                req.user.user_id,
+                operation_type,
+                crypto_currency,
+                crypto_amount,
+                fiat_currency,
+                fiat_amount,
+                payment_method,
+                wallet_address,
+                status
+            ]
+        );
+
+        res.status(201).json({
+            success: true,
+            message: 'Операция создана',
+            operation_id: result.rows.insertId
+        });
+
+    } catch (error) {
+        console.error('Create operation error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка создания операции'
+        });
+    }
 });
 
 // Получение всех операций пользователя
 router.get('/', auth, async (req, res) => {
-  const userId = req.user.userId;
+    try {
+        const result = await db.query(
+            'SELECT * FROM operations WHERE user_id = ? ORDER BY created_at DESC',
+            [req.user.user_id]
+        );
 
-  try {
-    const operations = await query(
-      'SELECT * FROM operations WHERE user_id = $1 ORDER BY created_at DESC',
-      [userId]
-    );
+        res.json({
+            success: true,
+            operations: result.rows,
+            count: result.rowCount
+        });
 
-    res.json({
-      success: true,
-      count: operations.rows.length,
-      operations: operations.rows,
-      summary: {
-        total_operations: operations.rows.length,
-        by_type: operations.rows.reduce((acc, op) => {
-          acc[op.operation_type] = (acc[op.operation_type] || 0) + 1;
-          return acc;
-        }, {}),
-        by_status: operations.rows.reduce((acc, op) => {
-          acc[op.status] = (acc[op.status] || 0) + 1;
-          return acc;
-        }, {})
-      }
-    });
-  } catch (err) {
-    console.error('❌ Ошибка получения операций:', err.message);
-    
-    // Специфичные ошибки базы данных
-    if (err.message.includes('База данных спит') || err.message.includes('не подключена')) {
-      return res.status(503).json({ 
-        error: 'База данных спит. Пожалуйста, попробуйте снова через 30 секунд.' 
-      });
+    } catch (error) {
+        console.error('Get operations error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка получения операций'
+        });
     }
-    
-    res.status(500).json({ error: 'Ошибка сервера при получении операций' });
-  }
 });
 
-// Получение конкретной операции
+// Получение одной операции
 router.get('/:id', auth, async (req, res) => {
-  const { id } = req.params;
-  const userId = req.user.userId;
+    try {
+        const result = await db.query(
+            'SELECT * FROM operations WHERE operation_id = ? AND user_id = ?',
+            [req.params.id, req.user.user_id]
+        );
 
-  try {
-    const operation = await query(
-      'SELECT * FROM operations WHERE operation_id = $1 AND user_id = $2',
-      [id, userId]
-    );
+        if (result.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Операция не найдена'
+            });
+        }
 
-    if (operation.rows.length === 0) {
-      return res.status(404).json({ error: 'Операция не найдена' });
+        res.json({
+            success: true,
+            operation: result.rows[0]
+        });
+
+    } catch (error) {
+        console.error('Get operation error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка получения операции'
+        });
     }
-
-    res.json({
-      success: true,
-      operation: operation.rows[0]
-    });
-  } catch (err) {
-    console.error('❌ Ошибка получения операции:', err.message);
-    
-    // Специфичные ошибки базы данных
-    if (err.message.includes('База данных спит') || err.message.includes('не подключена')) {
-      return res.status(503).json({ 
-        error: 'База данных спит. Пожалуйста, попробуйте снова через 30 секунд.' 
-      });
-    }
-    
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
 });
 
-// Обновление операции
+// Обновление статуса операции
 router.put('/:id', auth, async (req, res) => {
-  const { id } = req.params;
-  const userId = req.user.userId;
-  const updates = req.body;
+    try {
+        const { status } = req.body;
 
-  try {
-    // Проверяем существование операции
-    const operationExists = await query(
-      'SELECT * FROM operations WHERE operation_id = $1 AND user_id = $2',
-      [id, userId]
-    );
+        const result = await db.query(
+            'UPDATE operations SET status = ? WHERE operation_id = ? AND user_id = ?',
+            [status, req.params.id, req.user.user_id]
+        );
 
-    if (operationExists.rows.length === 0) {
-      return res.status(404).json({ error: 'Операция не найдена' });
+        if (result.rows.affectedRows === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Операция не найдена'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Статус операции обновлен'
+        });
+
+    } catch (error) {
+        console.error('Update operation error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка обновления операции'
+        });
     }
-
-    // Создаем динамический запрос на обновление
-    const setClause = Object.keys(updates)
-      .map((key, index) => `${key} = $${index + 3}`)
-      .join(', ');
-    
-    const values = Object.values(updates);
-    
-    const updatedOperation = await query(
-      `UPDATE operations 
-       SET ${setClause}, updated_at = CURRENT_TIMESTAMP 
-       WHERE operation_id = $1 AND user_id = $2 
-       RETURNING *`,
-      [id, userId, ...values]
-    );
-
-    res.json({
-      success: true,
-      message: 'Операция успешно обновлена',
-      operation: updatedOperation.rows[0]
-    });
-  } catch (err) {
-    console.error('❌ Ошибка обновления операции:', err.message);
-    
-    // Специфичные ошибки базы данных
-    if (err.message.includes('База данных спит') || err.message.includes('не подключена')) {
-      return res.status(503).json({ 
-        error: 'База данных спит. Пожалуйста, попробуйте снова через 30 секунд.' 
-      });
-    }
-    
-    res.status(500).json({ error: 'Ошибка сервера при обновлении операции' });
-  }
-});
-
-// Удаление операции
-router.delete('/:id', auth, async (req, res) => {
-  const { id } = req.params;
-  const userId = req.user.userId;
-
-  try {
-    const deletedOperation = await query(
-      'DELETE FROM operations WHERE operation_id = $1 AND user_id = $2 RETURNING *',
-      [id, userId]
-    );
-
-    if (deletedOperation.rows.length === 0) {
-      return res.status(404).json({ error: 'Операция не найдена' });
-    }
-
-    res.json({
-      success: true,
-      message: 'Операция успешно удалена',
-      operation: deletedOperation.rows[0]
-    });
-  } catch (err) {
-    console.error('❌ Ошибка удаления операции:', err.message);
-    
-    // Специфичные ошибки базы данных
-    if (err.message.includes('База данных спит') || err.message.includes('не подключена')) {
-      return res.status(503).json({ 
-        error: 'База данных спит. Пожалуйста, попробуйте снова через 30 секунд.' 
-      });
-    }
-    
-    res.status(500).json({ error: 'Ошибка сервера при удалении операции' });
-  }
 });
 
 module.exports = router;

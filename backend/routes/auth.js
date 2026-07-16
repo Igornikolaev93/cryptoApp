@@ -1,157 +1,152 @@
 // backend/routes/auth.js
 const express = require('express');
-const router = express.Router();
-const { query } = require('../db'); // Изменено
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const auth = require('../middleware/auth');
-require('dotenv').config();
+const db = require('../db');
 
-// Регистрация пользователя
+const router = express.Router();
+
+// Регистрация
 router.post('/register', async (req, res) => {
-  const { username, email, password } = req.body;
+    try {
+        const { username, email, password } = req.body;
 
-  // Валидация
-  if (!username || !email || !password) {
-    return res.status(400).json({ error: 'Все поля обязательны для заполнения' });
-  }
+        // Проверяем существование пользователя
+        const existingUser = await db.query(
+            'SELECT * FROM users WHERE email = ? OR username = ?',
+            [email, username]
+        );
 
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Пароль должен быть не менее 6 символов' });
-  }
+        if (existingUser.rows.length > 0) {
+            return res.status(400).json({ 
+                success: false,
+                message: 'Пользователь с таким email или именем уже существует' 
+            });
+        }
 
-  try {
-    // Проверка существования пользователя
-    const userExists = await query('SELECT * FROM users WHERE email = $1', [email]);
+        // Хешируем пароль
+        const salt = await bcrypt.genSalt(10);
+        const password_hash = await bcrypt.hash(password, salt);
 
-    if (userExists.rows.length > 0) {
-      return res.status(400).json({ error: 'Пользователь с таким email уже существует' });
+        // Создаем пользователя
+        const result = await db.query(
+            'INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?)',
+            [username, email, password_hash]
+        );
+
+        res.status(201).json({
+            success: true,
+            message: 'Пользователь успешно зарегистрирован',
+            user_id: result.rows.insertId
+        });
+
+    } catch (error) {
+        console.error('Registration error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка сервера',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
-
-    // Хеширование пароля
-    const salt = await bcrypt.genSalt(10);
-    const passwordHash = await bcrypt.hash(password, salt);
-
-    // Создание пользователя
-    const newUser = await query(
-      'INSERT INTO users (username, email, password_hash) VALUES ($1, $2, $3) RETURNING *',
-      [username, email, passwordHash]
-    );
-
-    // Создание JWT токена
-    const token = jwt.sign(
-      { userId: newUser.rows[0].user_id },
-      process.env.JWT_SECRET || 'fallback_secret_key',
-      { expiresIn: '24h' }
-    );
-
-    res.status(201).json({
-      success: true,
-      message: 'Пользователь успешно зарегистрирован',
-      user: {
-        user_id: newUser.rows[0].user_id,
-        username: newUser.rows[0].username,
-        email: newUser.rows[0].email
-      },
-      token
-    });
-  } catch (err) {
-    console.error('❌ Ошибка регистрации:', err.message);
-    
-    // Специфичные ошибки базы данных
-    if (err.message.includes('База данных спит') || err.message.includes('не подключена')) {
-      return res.status(503).json({ 
-        error: 'База данных спит. Пожалуйста, попробуйте снова через 30 секунд.' 
-      });
-    }
-    
-    res.status(500).json({ error: 'Ошибка сервера при регистрации' });
-  }
 });
 
-// Авторизация пользователя
+// Логин
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
+    try {
+        const { email, password } = req.body;
 
-  // Валидация
-  if (!email || !password) {
-    return res.status(400).json({ error: 'Email и пароль обязательны' });
-  }
+        const userResult = await db.query(
+            'SELECT * FROM users WHERE email = ?',
+            [email]
+        );
 
-  try {
-    // Поиск пользователя
-    const user = await query('SELECT * FROM users WHERE email = $1', [email]);
+        if (userResult.rows.length === 0) {
+            return res.status(401).json({
+                success: false,
+                message: 'Неверный email или пароль'
+            });
+        }
 
-    if (user.rows.length === 0) {
-      return res.status(400).json({ error: 'Неверный email или пароль' });
+        const user = userResult.rows[0];
+
+        // Проверяем пароль
+        const isMatch = await bcrypt.compare(password, user.password_hash);
+        if (!isMatch) {
+            return res.status(401).json({
+                success: false,
+                message: 'Неверный email или пароль'
+            });
+        }
+
+        // Создаем JWT
+        const token = jwt.sign(
+            { user_id: user.user_id, username: user.username },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' }
+        );
+
+        res.json({
+            success: true,
+            token,
+            user: {
+                user_id: user.user_id,
+                username: user.username,
+                email: user.email
+            }
+        });
+
+    } catch (error) {
+        console.error('Login error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка сервера'
+        });
     }
-
-    // Проверка пароля
-    const validPassword = await bcrypt.compare(password, user.rows[0].password_hash);
-
-    if (!validPassword) {
-      return res.status(400).json({ error: 'Неверный email или пароль' });
-    }
-
-    // Создание JWT токена
-    const token = jwt.sign(
-      { userId: user.rows[0].user_id },
-      process.env.JWT_SECRET || 'fallback_secret_key',
-      { expiresIn: '24h' }
-    );
-
-    res.json({
-      success: true,
-      message: 'Авторизация успешна',
-      user: {
-        user_id: user.rows[0].user_id,
-        username: user.rows[0].username,
-        email: user.rows[0].email
-      },
-      token
-    });
-  } catch (err) {
-    console.error('❌ Ошибка авторизации:', err.message);
-    
-    // Специфичные ошибки базы данных
-    if (err.message.includes('База данных спит') || err.message.includes('не подключена')) {
-      return res.status(503).json({ 
-        error: 'База данных спит. Пожалуйста, попробуйте снова через 30 секунд.' 
-      });
-    }
-    
-    res.status(500).json({ error: 'Ошибка сервера при авторизации' });
-  }
 });
 
-// Получение данных пользователя
-router.get('/user', auth, async (req, res) => {
-  try {
-    const user = await query(
-      'SELECT user_id, username, email, created_at FROM users WHERE user_id = $1',
-      [req.user.userId]
-    );
-    
-    if (user.rows.length === 0) {
-      return res.status(404).json({ error: 'Пользователь не найден' });
-    }
+// Получение информации о пользователе
+router.get('/user', async (req, res) => {
+    try {
+        const token = req.header('x-auth-token');
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                message: 'Нет токена авторизации'
+            });
+        }
 
-    res.json({
-      success: true,
-      user: user.rows[0]
-    });
-  } catch (err) {
-    console.error('❌ Ошибка получения данных пользователя:', err.message);
-    
-    // Специфичные ошибки базы данных
-    if (err.message.includes('База данных спит') || err.message.includes('не подключена')) {
-      return res.status(503).json({ 
-        error: 'База данных спит. Пожалуйста, попробуйте снова через 30 секунд.' 
-      });
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        
+        const userResult = await db.query(
+            'SELECT user_id, username, email, created_at FROM users WHERE user_id = ?',
+            [decoded.user_id]
+        );
+
+        if (userResult.rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Пользователь не найден'
+            });
+        }
+
+        res.json({
+            success: true,
+            user: userResult.rows[0]
+        });
+
+    } catch (error) {
+        console.error('Get user error:', error);
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(401).json({
+                success: false,
+                message: 'Недействительный токен'
+            });
+        }
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка сервера'
+        });
     }
-    
-    res.status(500).json({ error: 'Ошибка сервера' });
-  }
 });
 
 module.exports = router;

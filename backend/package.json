@@ -7,15 +7,17 @@
     "dev": "nodemon index.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-     "build": "npm install"
+    "build": "npm install"
   },
   "dependencies": {
     "bcrypt": "^5.0.1",
-    "cors": "^2.8.5",
-    "express": "^4.17.1",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.2",
     "jsonwebtoken": "^8.5.1",
-    "pg": "^8.7.1",
-    "dotenv": "^16.0.3"
+    "mysql2": "^3.23.0",
+    "pg": "^8.7.1"
   },
   "devDependencies": {
     "nodemon": "^2.0.15"

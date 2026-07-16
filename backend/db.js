@@ -1,128 +1,125 @@
 // backend/db.js
-const { Pool } = require('pg');
+const mysql = require('mysql2/promise');
 require('dotenv').config();
 
 let pool = null;
 let isDatabaseConnected = false;
 
 /**
- * Инициализация подключения к базе данных
+ * Инициализация подключения к MySQL (Hostiman)
  */
-function initializeDatabase() {
-  if (!process.env.DATABASE_URL) {
-    console.log('⚠️ DATABASE_URL не настроен в Environment Variables');
-    return null;
-  }
+async function initializeDatabase() {
+    try {
+        console.log('🔧 Подключение к MySQL (Hostiman)...');
+        
+        // Проверяем наличие всех необходимых переменных
+        if (!process.env.DB_HOST || !process.env.DB_USER || !process.env.DB_PASSWORD || !process.env.DB_NAME) {
+            console.error('❌ Отсутствуют данные для подключения к БД!');
+            console.log('Проверьте переменные: DB_HOST, DB_USER, DB_PASSWORD, DB_NAME');
+            return null;
+        }
 
-  try {
-    console.log('🔧 Инициализация подключения к базе данных...');
-    
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      ssl: {
-        rejectUnauthorized: false
-      },
-      connectionTimeoutMillis: 15000,
-      idleTimeoutMillis: 30000,
-      max: 10
-    });
+        pool = mysql.createPool({
+            host: process.env.DB_HOST,
+            user: process.env.DB_USER,
+            password: process.env.DB_PASSWORD,
+            database: process.env.DB_NAME,
+            port: parseInt(process.env.DB_PORT) || 3306,
+            waitForConnections: true,
+            connectionLimit: 10,
+            queueLimit: 0,
+            connectTimeout: 15000,
+            // Если Hostiman требует SSL:
+            // ssl: { rejectUnauthorized: false }
+        });
 
-    // Тестируем подключение
-    pool.connect((err, client, release) => {
-      if (err) {
-        console.error('❌ Ошибка подключения к базе:', err.message);
-        isDatabaseConnected = false;
-      } else {
-        console.log('✅ Успешное подключение к PostgreSQL!');
+        // Проверяем подключение
+        const connection = await pool.getConnection();
+        console.log('✅ Подключение к MySQL успешно!');
+        
+        const [rows] = await connection.query('SELECT VERSION() as version, DATABASE() as database, USER() as user');
+        console.log(`📊 База данных: ${rows[0].database}`);
+        console.log(`👤 Пользователь: ${rows[0].user}`);
+        console.log(`🔧 Версия MySQL: ${rows[0].version}`);
+        
+        connection.release();
         isDatabaseConnected = true;
-        release();
-      }
-    });
 
-    // Обработчик ошибок пула
-    pool.on('error', (err) => {
-      console.error('❌ Неожиданная ошибка в пуле соединений:', err.message);
-      isDatabaseConnected = false;
-    });
+        // Keep-alive (каждые 10 минут)
+        setInterval(async () => {
+            try {
+                const conn = await pool.getConnection();
+                await conn.query('SELECT 1');
+                conn.release();
+                console.log('⏰ Keep-alive ping отправлен');
+            } catch (error) {
+                console.log('⚠️ Потеря связи с БД, переподключаемся...');
+                isDatabaseConnected = false;
+                setTimeout(initializeDatabase, 5000);
+            }
+        }, 10 * 60 * 1000);
 
-    return pool;
-  } catch (error) {
-    console.error('❌ Ошибка инициализации пула:', error.message);
-    return null;
-  }
+        return pool;
+
+    } catch (error) {
+        console.error('❌ Ошибка подключения к MySQL:', error.message);
+        isDatabaseConnected = false;
+        
+        // Повторная попытка через 10 секунд
+        console.log('⏳ Повторная попытка через 10 секунд...');
+        setTimeout(initializeDatabase, 10000);
+        return null;
+    }
 }
 
 /**
- * Безопасное выполнение запросов к базе
+ * Выполнение запроса к базе данных
  */
 async function query(sql, params = []) {
-  if (!pool || !isDatabaseConnected) {
-    console.log('⚠️ База данных не подключена, пытаемся переподключиться...');
-    initializeDatabase();
-    throw new Error('База данных не подключена или спит. Пожалуйста, попробуйте снова через 30 секунд.');
-  }
-
-  try {
-    const client = await pool.connect();
-    const result = await client.query(sql, params);
-    client.release();
-    return result;
-  } catch (error) {
-    console.error('❌ Ошибка выполнения запроса:', error.message);
-    
-    // Если ошибка связана с подключением
-    if (error.code === '57P01' || 
-        error.message.includes('connection') || 
-        error.message.includes('terminated') ||
-        error.message.includes('getaddrinfo')) {
-      console.log('🔄 База данных спит, переподключаемся...');
-      isDatabaseConnected = false;
-      initializeDatabase();
-      throw new Error('База данных спит. Пожалуйста, попробуйте снова через 30 секунд.');
+    if (!pool || !isDatabaseConnected) {
+        throw new Error('База данных не подключена');
     }
-    
-    throw error;
-  }
+
+    try {
+        const [rows] = await pool.query(sql, params);
+        return { rows, rowCount: rows.length };
+    } catch (error) {
+        console.error('❌ Ошибка выполнения запроса:', error.message);
+        console.error('SQL:', sql);
+        console.error('Params:', params);
+        throw error;
+    }
 }
 
 /**
- * Проверка подключения к базе
+ * Получение одного пользователя по условию
  */
-async function checkConnection() {
-  try {
-    if (!pool) {
-      return { connected: false, message: 'Пул не инициализирован' };
-    }
-    
-    const client = await pool.connect();
-    await client.query('SELECT 1');
-    client.release();
-    return { connected: true, message: 'База данных подключена' };
-  } catch (error) {
-    return { connected: false, message: error.message };
-  }
+async function getOne(sql, params = []) {
+    const result = await query(sql, params);
+    return result.rows.length > 0 ? result.rows[0] : null;
 }
 
-// Инициализируем подключение при загрузке модуля
-initializeDatabase();
+/**
+ * Проверка статуса подключения
+ */
+function isConnected() {
+    return isDatabaseConnected;
+}
 
-// Авто-проверка подключения каждые 10 минут
-setInterval(async () => {
-  if (isDatabaseConnected) {
-    try {
-      await query('SELECT 1');
-      console.log('⏰ Keep-alive ping отправлен');
-    } catch (error) {
-      console.log('⚠️ База данных уснула');
-      isDatabaseConnected = false;
-    }
-  }
-}, 10 * 60 * 1000);
+/**
+ * Переподключение к базе
+ */
+async function reconnect() {
+    console.log('🔄 Переподключение к базе...');
+    isDatabaseConnected = false;
+    return await initializeDatabase();
+}
 
 module.exports = {
-  query,
-  pool: () => pool,
-  isConnected: () => isDatabaseConnected,
-  checkConnection,
-  reconnect: initializeDatabase
+    query,
+    getOne,
+    isConnected,
+    initializeDatabase,
+    reconnect,
+    pool: () => pool
 };
