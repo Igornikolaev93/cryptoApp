@@ -1,12 +1,7 @@
-
 import React, { useEffect, useState, useRef } from 'react';
-import axios from 'axios';
+import api from './Api';
 import './App.css';
 import UserProfile from './UserProfile';
-
-const API_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://cryptoapp-backend.onrender.com' 
-  : 'http://localhost:5000';
 
 function App() {
   const [coins, setCoins] = useState([]);
@@ -31,7 +26,7 @@ function App() {
   const [selectedCrypto, setSelectedCrypto] = useState({
     symbol: 'BTC',
     name: 'Bitcoin',
-    price: ''
+    price: 0
   });
 
   const [cryptoAmount, setCryptoAmount] = useState(1.0);
@@ -68,29 +63,14 @@ function App() {
   const isScrolling = useRef(false);
   const scrollTimeout = useRef(null);
 
+  // Загрузка курсов криптовалют
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
-      axios.defaults.headers.common['x-auth-token'] = token;
-      // You can add a request here to get user data if needed
+      api.defaults.headers.common['x-auth-token'] = token;
     }
 
-    fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd')
-      .then(response => {
-        if (!response.ok) {
-          throw new Error('Network response was not ok');
-        }
-        return response.json();
-      })
-      .then(data => {
-        setCoins(data);
-        setLoading(false);
-      })
-      .catch(error => {
-        console.error('Error fetching data:', error);
-        setError(error.message);
-        setLoading(false);
-      });
+    fetchCoins();
 
     window.addEventListener('scroll', handleScroll);
 
@@ -101,6 +81,34 @@ function App() {
       }
     };
   }, []);
+
+  const fetchCoins = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd');
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+      const data = await response.json();
+      setCoins(data);
+      
+      // Устанавливаем начальную цену для BTC
+      const btcData = data.find(c => c.symbol.toLowerCase() === 'btc');
+      if (btcData) {
+        setSelectedCrypto(prev => ({
+          ...prev,
+          price: btcData.current_price
+        }));
+        setFiatAmount(btcData.current_price);
+      }
+      
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setError(error.message);
+      setLoading(false);
+    }
+  };
 
   const handleScroll = () => {
     if (!isScrolling.current) {
@@ -179,6 +187,11 @@ function App() {
   };
 
   const handleExchange = () => {
+    if (!user) {
+      alert('Пожалуйста, войдите в систему для совершения обмена');
+      setShowLoginModal(true);
+      return;
+    }
     setShowWithdrawalModal(true);
   };
 
@@ -198,6 +211,7 @@ function App() {
 
   const handleWithdrawalSubmit = async (e) => {
     e.preventDefault();
+    
     if (!withdrawalData.walletAddress.trim() || !withdrawalData.fullName.trim()) {
       alert('Пожалуйста, введите все обязательные поля');
       return;
@@ -206,6 +220,7 @@ function App() {
     const token = localStorage.getItem('token');
     if (!token) {
       alert('Пожалуйста, войдите в систему, чтобы совершить операцию');
+      setShowLoginModal(true);
       return;
     }
 
@@ -213,25 +228,33 @@ function App() {
       const operationData = {
         operation_type: 'sell',
         crypto_currency: selectedCrypto.symbol,
-        crypto_amount: cryptoAmount,
+        crypto_amount: parseFloat(cryptoAmount),
         fiat_currency: selectedFiat,
-        fiat_amount: fiatAmount,
+        fiat_amount: parseFloat(fiatAmount),
         payment_method: withdrawalData.paymentMethod,
         wallet_address: withdrawalData.walletAddress,
         status: 'pending'
       };
 
-      await axios.post(`${API_URL}/api/operations`, operationData, {
-        headers: { 'x-auth-token': token }
-      });
+      await api.post('/operations', operationData);
 
       alert(`Заявка на вывод ${cryptoAmount} ${selectedCrypto.symbol} успешно создана!`);
       setShowWithdrawalModal(false);
-      setWithdrawalData({ paymentMethod: 'bank_card', walletAddress: '', email: '', phone: '', fullName: '' });
+      setWithdrawalData({ 
+        paymentMethod: 'bank_card', 
+        walletAddress: '', 
+        email: '', 
+        phone: '', 
+        fullName: '' 
+      });
       resetInputValues();
     } catch (error) {
       console.error('Error creating operation:', error);
-      alert('Ошибка при создании операции');
+      if (error.response?.data?.message) {
+        alert(`Ошибка: ${error.response.data.message}`);
+      } else {
+        alert('Ошибка при создании операции. Пожалуйста, попробуйте позже.');
+      }
     }
   };
 
@@ -263,38 +286,48 @@ function App() {
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post(`${API_URL}/api/auth/login`, loginData);
+      const res = await api.post('/auth/login', loginData);
       localStorage.setItem('token', res.data.token);
-      axios.defaults.headers.common['x-auth-token'] = res.data.token;
+      api.defaults.headers.common['x-auth-token'] = res.data.token;
       
       // Fetch user data
-      const userRes = await axios.get(`${API_URL}/api/auth/user`);
+      const userRes = await api.get('/auth/me');
       setUser(userRes.data);
 
       setShowLoginModal(false);
-      openProfile();
+      // Открываем профиль после успешного входа
+      await openProfile();
     } catch (error) {
       console.error('Login failed:', error);
-      alert('Неверный email или пароль');
+      if (error.response?.data?.detail) {
+        alert(error.response.data.detail);
+      } else {
+        alert('Неверный email или пароль');
+      }
     }
   };
 
   const handleRegister = async (e) => {
     e.preventDefault();
     try {
-      await axios.post(`${API_URL}/api/auth/register`, registerData);
+      await api.post('/auth/register', registerData);
       alert('Регистрация прошла успешно! Теперь вы можете войти в систему.');
       setShowRegisterModal(false);
       setShowLoginModal(true);
+      setRegisterData({ username: '', email: '', password: '' });
     } catch (error) {
       console.error('Registration failed:', error);
-      alert('Ошибка регистрации');
+      if (error.response?.data?.detail) {
+        alert(error.response.data.detail);
+      } else {
+        alert('Ошибка регистрации. Пожалуйста, попробуйте позже.');
+      }
     }
   };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
-    delete axios.defaults.headers.common['x-auth-token'];
+    delete api.defaults.headers.common['x-auth-token'];
     setUser(null);
     setUserOperations([]);
     setShowProfileModal(false);
@@ -302,11 +335,14 @@ function App() {
 
   const openProfile = async () => {
     try {
-      const res = await axios.get(`${API_URL}/api/operations`);
+      const res = await api.get('/operations');
       setUserOperations(res.data);
       setShowProfileModal(true);
     } catch (error) {
       console.error('Error fetching operations:', error);
+      if (error.response?.status === 401) {
+        handleLogout();
+      }
     }
   };
 
@@ -314,18 +350,38 @@ function App() {
     <div className="App">
       {/* Login Modal */}
       {showLoginModal && (
-        <div className="modal-overlay">
-          <div className="modal-content">            
+        <div className="modal-overlay" onClick={() => setShowLoginModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>            
             <div className="modal-header">
               <h2>Вход</h2>
               <button className="modal-close" onClick={() => setShowLoginModal(false)}>×</button>
             </div>
             <div className="modal-body">
               <form onSubmit={handleLogin}>
-                <input type="email" name="email" placeholder="Email" value={loginData.email} onChange={handleLoginChange} required />
-                <input type="password" name="password" placeholder="Пароль" value={loginData.password} onChange={handleLoginChange} required />
+                <input 
+                  type="email" 
+                  name="email" 
+                  placeholder="Email" 
+                  value={loginData.email} 
+                  onChange={handleLoginChange} 
+                  required 
+                />
+                <input 
+                  type="password" 
+                  name="password" 
+                  placeholder="Пароль" 
+                  value={loginData.password} 
+                  onChange={handleLoginChange} 
+                  required 
+                />
                 <button type="submit" className="btn btn-primary">Войти</button>
               </form>
+              <p className="auth-switch">
+                Нет аккаунта? <button onClick={() => {
+                  setShowLoginModal(false);
+                  setShowRegisterModal(true);
+                }}>Зарегистрироваться</button>
+              </p>
             </div>
           </div>
         </div>
@@ -333,19 +389,47 @@ function App() {
 
       {/* Register Modal */}
       {showRegisterModal && (
-        <div className="modal-overlay">
-          <div className="modal-content">            
+        <div className="modal-overlay" onClick={() => setShowRegisterModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>            
             <div className="modal-header">
               <h2>Регистрация</h2>
               <button className="modal-close" onClick={() => setShowRegisterModal(false)}>×</button>
             </div>
             <div className="modal-body">
               <form onSubmit={handleRegister}>
-                <input type="text" name="username" placeholder="Имя пользователя" value={registerData.username} onChange={handleRegisterChange} required />
-                <input type="email" name="email" placeholder="Email" value={registerData.email} onChange={handleRegisterChange} required />
-                <input type="password" name="password" placeholder="Пароль" value={registerData.password} onChange={handleRegisterChange} required />
+                <input 
+                  type="text" 
+                  name="username" 
+                  placeholder="Имя пользователя" 
+                  value={registerData.username} 
+                  onChange={handleRegisterChange} 
+                  required 
+                />
+                <input 
+                  type="email" 
+                  name="email" 
+                  placeholder="Email" 
+                  value={registerData.email} 
+                  onChange={handleRegisterChange} 
+                  required 
+                />
+                <input 
+                  type="password" 
+                  name="password" 
+                  placeholder="Пароль (минимум 6 символов)" 
+                  value={registerData.password} 
+                  onChange={handleRegisterChange} 
+                  required 
+                  minLength="6"
+                />
                 <button type="submit" className="btn btn-primary">Зарегистрироваться</button>
               </form>
+              <p className="auth-switch">
+                Уже есть аккаунт? <button onClick={() => {
+                  setShowRegisterModal(false);
+                  setShowLoginModal(true);
+                }}>Войти</button>
+              </p>
             </div>
           </div>
         </div>
@@ -353,22 +437,27 @@ function App() {
 
       {/* User Profile Modal */}
       {showProfileModal && (
-        <div className="modal-overlay">
-          <div className="modal-content user-profile-modal">
+        <div className="modal-overlay" onClick={() => setShowProfileModal(false)}>
+          <div className="modal-content user-profile-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Личный кабинет</h2>
               <button className="modal-close" onClick={() => setShowProfileModal(false)}>×</button>
             </div>
             <div className="modal-body">
-              <UserProfile user={user} operations={userOperations} onLogout={handleLogout} />
+              <UserProfile 
+                user={user} 
+                operations={userOperations} 
+                onLogout={handleLogout} 
+              />
             </div>
           </div>
         </div>
       )}
 
+      {/* Withdrawal Modal */}
       {showWithdrawalModal && (
-        <div className="modal-overlay">
-          <div className="modal-content withdrawal-modal">
+        <div className="modal-overlay" onClick={closeWithdrawalModal}>
+          <div className="modal-content withdrawal-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2>Вывод средств от продажи криптовалюты</h2>
               <button className="modal-close" onClick={closeWithdrawalModal}>×</button>
@@ -377,23 +466,66 @@ function App() {
               <div className="exchange-summary">
                 <h3>Детали обмена</h3>
                 <div className="summary-details">
-                  <div className="summary-item"><span>Продаете:</span><strong>{cryptoAmount} {selectedCrypto.symbol}</strong></div>
-                  <div className="summary-item"><span>Получаете:</span><strong>{fiatAmount.toFixed(2)} {selectedFiat}</strong></div>
-                  <div className="summary-item"><span>Курс:</span><strong>1 {selectedCrypto.symbol} = {selectedCrypto.price.toLocaleString()} USD</strong></div>
+                  <div className="summary-item">
+                    <span>Продаете:</span>
+                    <strong>{cryptoAmount} {selectedCrypto.symbol}</strong>
+                  </div>
+                  <div className="summary-item">
+                    <span>Получаете:</span>
+                    <strong>{fiatAmount.toFixed(2)} {selectedFiat}</strong>
+                  </div>
+                  <div className="summary-item">
+                    <span>Курс:</span>
+                    <strong>1 {selectedCrypto.symbol} = ${selectedCrypto.price.toLocaleString()} USD</strong>
+                  </div>
                 </div>
               </div>
+              
               <form className="withdrawal-form" onSubmit={handleWithdrawalSubmit}>
                 <div className="form-section">
                   <h3>Данные для вывода</h3>
-                  <div className="form-group"><label>ФИО получателя *</label><input type="text" name="fullName" value={withdrawalData.fullName} onChange={handleWithdrawalChange} placeholder="Иванов Иван Иванович" required /></div>
-                  <div className="form-group"><label>Email</label><input type="email" name="email" value={withdrawalData.email} onChange={handleWithdrawalChange} placeholder="example@email.com" /></div>
-                  <div className="form-group"><label>Телефон</label><input type="tel" name="phone" value={withdrawalData.phone} onChange={handleWithdrawalChange} placeholder="+7 (999) 123-45-67" /></div>
+                  <div className="form-group">
+                    <label>ФИО получателя *</label>
+                    <input 
+                      type="text" 
+                      name="fullName" 
+                      value={withdrawalData.fullName} 
+                      onChange={handleWithdrawalChange} 
+                      placeholder="Иванов Иван Иванович" 
+                      required 
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Email</label>
+                    <input 
+                      type="email" 
+                      name="email" 
+                      value={withdrawalData.email} 
+                      onChange={handleWithdrawalChange} 
+                      placeholder="example@email.com" 
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Телефон</label>
+                    <input 
+                      type="tel" 
+                      name="phone" 
+                      value={withdrawalData.phone} 
+                      onChange={handleWithdrawalChange} 
+                      placeholder="+7 (999) 123-45-67" 
+                    />
+                  </div>
                 </div>
+                
                 <div className="form-section">
                   <h3>Способ получения средств</h3>
                   <div className="payment-methods">
                     {paymentMethods.map(method => (
-                      <div key={method.id} className={`payment-method ${withdrawalData.paymentMethod === method.id ? 'active' : ''}`} onClick={() => handlePaymentMethodChange(method.id)}>
+                      <div 
+                        key={method.id} 
+                        className={`payment-method ${withdrawalData.paymentMethod === method.id ? 'active' : ''}`} 
+                        onClick={() => handlePaymentMethodChange(method.id)}
+                      >
                         <div className="payment-icon">{method.icon}</div>
                         <div className="payment-name">{method.name}</div>
                       </div>
@@ -401,29 +533,60 @@ function App() {
                   </div>
                   <div className="form-group">
                     <label>Реквизиты для получения *</label>
-                    <input type="text" name="walletAddress" value={withdrawalData.walletAddress} onChange={handleWithdrawalChange} placeholder={getWalletPlaceholder()} required />
-                    <small className="form-hint">{withdrawalData.paymentMethod === 'bank_card' ? 'Укажите номер карты без пробелов' : 'Введите корректные реквизиты'}</small>
+                    <input 
+                      type="text" 
+                      name="walletAddress" 
+                      value={withdrawalData.walletAddress} 
+                      onChange={handleWithdrawalChange} 
+                      placeholder={getWalletPlaceholder()} 
+                      required 
+                    />
+                    <small className="form-hint">
+                      {withdrawalData.paymentMethod === 'bank_card' 
+                        ? 'Укажите номер карты без пробелов' 
+                        : 'Введите корректные реквизиты'}
+                    </small>
                   </div>
                 </div>
+                
                 <div className="form-section">
                   <h3>Сводка</h3>
                   <div className="withdrawal-summary">
-                    <div className="summary-row"><span>Сумма вывода:</span><span>{fiatAmount.toFixed(2)} {selectedFiat}</span></div>
-                    <div className="summary-row"><span>Комиссия сервиса:</span><span>{(fiatAmount * 0.01).toFixed(2)} {selectedFiat} (1%)</span></div>
-                    <div className="summary-row total"><span>Итого к получению:</span><span>{(fiatAmount * 0.99).toFixed(2)} {selectedFiat}</span></div>
+                    <div className="summary-row">
+                      <span>Сумма вывода:</span>
+                      <span>{fiatAmount.toFixed(2)} {selectedFiat}</span>
+                    </div>
+                    <div className="summary-row">
+                      <span>Комиссия сервиса:</span>
+                      <span>{(fiatAmount * 0.01).toFixed(2)} {selectedFiat} (1%)</span>
+                    </div>
+                    <div className="summary-row total">
+                      <span>Итого к получению:</span>
+                      <span>{(fiatAmount * 0.99).toFixed(2)} {selectedFiat}</span>
+                    </div>
                   </div>
                 </div>
+                
                 <div className="form-actions">
-                  <button type="button" className="btn btn-outline" onClick={closeWithdrawalModal}>Отмена</button>
-                  <button type="submit" className="btn btn-primary">Подтвердить вывод</button>
+                  <button type="button" className="btn btn-outline" onClick={closeWithdrawalModal}>
+                    Отмена
+                  </button>
+                  <button type="submit" className="btn btn-primary">
+                    Подтвердить вывод
+                  </button>
                 </div>
-                <div className="form-disclaimer"><p>⚠️ Средства будут переведены в течение 1-24 часов после подтверждения операции.</p><p>🔒 Ваши данные защищены и используются только для обработки транзакции.</p></div>
+                
+                <div className="form-disclaimer">
+                  <p>⚠️ Средства будут переведены в течение 1-24 часов после подтверждения операции.</p>
+                  <p>🔒 Ваши данные защищены и используются только для обработки транзакции.</p>
+                </div>
               </form>
             </div>
           </div>
         </div>
       )}
 
+      {/* Header */}
       <header>
         <div className="container">
           <div className="header-content">
@@ -434,23 +597,31 @@ function App() {
             <button className="mobile-menu-btn">☰</button>
             <nav>
               <ul>
-                <li><a href="#">Главная</a></li>
-                <li><a href="#">Обмен</a></li>
-                <li><a href="#">Курсы</a></li>
-                <li><a href="#">О нас</a></li>
-                <li><a href="#">Контакты</a></li>
+                <li><a href="#hero">Главная</a></li>
+                <li><a href="#converter">Обмен</a></li>
+                <li><a href="#currencies">Курсы</a></li>
+                <li><a href="#features">О нас</a></li>
+                <li><a href="#contact">Контакты</a></li>
               </ul>
             </nav>
             <div className="auth-buttons">
               {user ? (
                 <>
-                  <button className="btn btn-outline" onClick={openProfile}>Профиль</button>
-                  <button className="btn btn-primary" onClick={handleLogout}>Выйти</button>
+                  <button className="btn btn-outline" onClick={openProfile}>
+                    👤 {user.username}
+                  </button>
+                  <button className="btn btn-primary" onClick={handleLogout}>
+                    Выйти
+                  </button>
                 </>
               ) : (
                 <>
-                  <button className="btn btn-outline" onClick={() => setShowLoginModal(true)}>Войти</button>
-                  <button className="btn btn-primary" onClick={() => setShowRegisterModal(true)}>Регистрация</button>
+                  <button className="btn btn-outline" onClick={() => setShowLoginModal(true)}>
+                    Войти
+                  </button>
+                  <button className="btn btn-primary" onClick={() => setShowRegisterModal(true)}>
+                    Регистрация
+                  </button>
                 </>
               )}
             </div>
@@ -458,8 +629,8 @@ function App() {
         </div>
       </header>
 
-      {/* ... rest of your component ... */}
-            <section className="hero">
+      {/* Hero Section */}
+      <section className="hero" id="hero">
         <div className="container">
           <h1>Быстрый и безопасный обмен криптовалют</h1>
           <p>Мгновенные обмены по лучшим курсам с минимальными комиссиями. Более 100 криптовалют доступно для обмена.</p>
@@ -469,7 +640,8 @@ function App() {
         </div>
       </section>
 
-      <section className="container">
+      {/* Converter Section */}
+      <section className="container" id="converter">
         <div className="converter-section" style={{ 
           display: isVisible ? 'block' : 'none' 
         }}>
@@ -491,7 +663,7 @@ function App() {
                   type="number" 
                   className="converter-input" 
                   value={cryptoAmount}
-                  min="0"
+                  min="0.000001"
                   step="0.000001"
                   onChange={handleCryptoAmountChange}
                   placeholder="Введите количество"
@@ -539,7 +711,7 @@ function App() {
           </div>
           
           <div className="converter-result">
-            <p>Курс: 1 {selectedCrypto.symbol} = {selectedCrypto.price.toLocaleString()} USD</p>
+            <p>Курс: 1 {selectedCrypto.symbol} = ${selectedCrypto.price.toLocaleString()} USD</p>
             <p className="scroll-hint">💡 Значения будут сброшены при прокрутке страницы</p>
           </div>
           
@@ -549,7 +721,8 @@ function App() {
         </div>
       </section>
 
-      <section className="features">
+      {/* Features Section */}
+      <section className="features" id="features">
         <div className="container">
           <h2 className="section-title">Почему выбирают нас</h2>
           <div className="features-grid">
@@ -580,21 +753,30 @@ function App() {
         </div>
       </section>
 
-      <section className="popular-currencies">
+      {/* Popular Currencies Section */}
+      <section className="popular-currencies" id="currencies">
         <div className="container">
           <h2 className="section-title">Популярные криптовалюты</h2>
           <div className="asset-list">
             {loading ? (
-              <p>Загрузка...</p>
+              <div className="loading-spinner">Загрузка...</div>
             ) : error ? (
-              <p>Ошибка: {error}</p>
+              <div className="error-message">Ошибка: {error}</div>
             ) : (
               coins.slice(0, 10).map(coin => (
                 <div key={coin.id} className="asset">
-                  <img src={coin.image} alt={coin.name} width="50" />
-                  <h2>{coin.name} ({coin.symbol.toUpperCase()})</h2>
-                  <p>Price: ${coin.current_price.toLocaleString()}</p>
-                  <button onClick={() => handleBuy(coin)}>Купить</button>
+                  <img src={coin.image} alt={coin.name} width="50" height="50" />
+                  <div className="asset-info">
+                    <h3>{coin.name}</h3>
+                    <p className="asset-symbol">{coin.symbol.toUpperCase()}</p>
+                  </div>
+                  <p className="asset-price">${coin.current_price.toLocaleString()}</p>
+                  <button 
+                    className="btn btn-primary btn-small" 
+                    onClick={() => handleBuy(coin)}
+                  >
+                    Купить
+                  </button>
                 </div>
               ))
             )}
@@ -602,6 +784,7 @@ function App() {
         </div>
       </section>
 
+      {/* How It Works Section */}
       <section className="how-it-works">
         <div className="container">
           <h2 className="section-title">Как это работает</h2>
@@ -633,12 +816,18 @@ function App() {
         </div>
       </section>
 
-      <footer>
+      {/* Footer */}
+      <footer id="contact">
         <div className="container">
           <div className="footer-content">
             <div className="footer-column">
               <h3>CryptoExchange</h3>
               <p>Быстрый и безопасный обмен криптовалют с 2025 года.</p>
+              <div className="social-links">
+                <a href="#" aria-label="Telegram">📱</a>
+                <a href="#" aria-label="Twitter">🐦</a>
+                <a href="#" aria-label="YouTube">▶️</a>
+              </div>
             </div>
             
             <div className="footer-column">
