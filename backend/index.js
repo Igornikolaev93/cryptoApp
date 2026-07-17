@@ -1,64 +1,91 @@
-// backend/index.js
 const express = require('express');
 const cors = require('cors');
-const db = require('./db');
-const authRoutes = require('./routes/auth');
-const operationRoutes = require('./routes/operations');
+const db = require('../db');
+const authRoutes = require('../routes/auth');
+const operationRoutes = require('../routes/operations');
+require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 10000;
 
-// Middleware
+// Настройка CORS
 app.use(cors({
-    origin: '*',
+    origin: process.env.FRONTEND_URL || '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
     credentials: true
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Логирование запросов
-app.use((req, res, next) => {
-    console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
-    next();
-});
+// Логирование (только в dev)
+if (process.env.NODE_ENV !== 'production') {
+    app.use((req, res, next) => {
+        console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
+        next();
+    });
+}
 
 // ============================================
-// Эндпоинты для проверки БД
+// Системные эндпоинты
 // ============================================
 
-// Корневой маршрут
 app.get('/', (req, res) => {
     res.json({
-        message: '🚀 CryptoApp Backend API',
+        message: '🚀 CryptoApp Backend API (Vercel)',
         status: 'online',
+        version: process.env.npm_package_version || '1.0.0',
         database: db.isConnected() ? '✅ Подключена' : '⏳ Не подключена',
-        server_time: new Date().toISOString()
+        server_time: new Date().toISOString(),
+        environment: process.env.VERCEL_ENV || 'development'
     });
 });
 
-// Health check
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
+    const dbStatus = db.isConnected();
+    let dbInfo = { connected: dbStatus };
+    
+    if (dbStatus) {
+        try {
+            const result = await db.query('SELECT 1 as test');
+            dbInfo = { ...dbInfo, test: 'success' };
+        } catch (error) {
+            dbInfo = { ...dbInfo, test: 'failed', error: error.message };
+        }
+    }
+    
     res.json({
         status: 'OK',
         server: 'running',
-        database: db.isConnected() ? 'connected' : 'disconnected',
-        timestamp: new Date().toISOString()
+        vercel: true,
+        database: dbStatus ? 'connected' : 'disconnected',
+        timestamp: new Date().toISOString(),
+        dbInfo
     });
 });
 
-// Проверка подключения к БД
 app.get('/api/db-status', async (req, res) => {
     try {
         const connected = db.isConnected();
-        const result = await db.query('SELECT 1 as test, DATABASE() as database, USER() as user');
+        if (!connected) {
+            return res.json({
+                success: false,
+                connected: false,
+                message: 'База данных не подключена',
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+        const result = await db.query(
+            'SELECT DATABASE() as database, USER() as user, VERSION() as version'
+        );
         
         res.json({
             success: true,
-            connected: connected,
-            database: result.rows[0].database,
-            user: result.rows[0].user,
+            connected: true,
+            database: result.rows[0]?.database || 'unknown',
+            user: result.rows[0]?.user || 'unknown',
+            version: result.rows[0]?.version || 'unknown',
             timestamp: new Date().toISOString()
         });
     } catch (error) {
@@ -71,8 +98,7 @@ app.get('/api/db-status', async (req, res) => {
     }
 });
 
-// Принудительное переподключение
-app.get('/api/db-reconnect', async (req, res) => {
+app.post('/api/db-reconnect', async (req, res) => {
     try {
         await db.reconnect();
         res.json({
@@ -90,14 +116,14 @@ app.get('/api/db-reconnect', async (req, res) => {
 });
 
 // ============================================
-// Подключение маршрутов
+// Основные маршруты API
 // ============================================
 
 app.use('/api/auth', authRoutes);
 app.use('/api/operations', operationRoutes);
 
 // ============================================
-// Обработка ошибок
+// Обработка 404
 // ============================================
 
 app.use('*', (req, res) => {
@@ -108,27 +134,33 @@ app.use('*', (req, res) => {
     });
 });
 
+// Глобальный обработчик ошибок
 app.use((err, req, res, next) => {
     console.error('❌ Ошибка сервера:', err.stack);
-    res.status(500).json({
+    
+    res.status(err.status || 500).json({
         success: false,
-        message: 'Внутренняя ошибка сервера',
-        error: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+        message: err.message || 'Внутренняя ошибка сервера',
+        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
     });
 });
 
-// ============================================
-// Запуск сервера
-// ============================================
+// Инициализация БД при первом запросе
+let dbInitialized = false;
 
-app.listen(PORT, async () => {
-    console.log('='.repeat(50));
-    console.log(`🚀 Сервер запущен на порту ${PORT}`);
-    console.log(`🌐 http://localhost:${PORT}`);
-    console.log('='.repeat(50));
-    
-    // Инициализация БД
-    await db.initializeDatabase();
+// Middleware для инициализации БД
+app.use(async (req, res, next) => {
+    if (!dbInitialized) {
+        try {
+            await db.initializeDatabase();
+            dbInitialized = true;
+            console.log('✅ База данных инициализирована');
+        } catch (error) {
+            console.error('❌ Ошибка инициализации БД:', error.message);
+        }
+    }
+    next();
 });
 
+// Экспорт для Vercel
 module.exports = app;
