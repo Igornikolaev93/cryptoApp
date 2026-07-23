@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
-import api from './Api';
+// Импортируем API клиент из правильного файла
+import api from './services/api';
 import './App.css';
 import UserProfile from './UserProfile';
 
@@ -80,6 +81,7 @@ function App() {
         clearTimeout(scrollTimeout.current);
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchCoins = async () => {
