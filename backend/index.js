@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const db = require('./db');  // ← Изменено с '../db' на './db'
+const db = require('./db');
 const authRoutes = require('./routes/auth');
 const operationRoutes = require('./routes/operations');
 require('dotenv').config();
@@ -8,11 +8,12 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// В начале index.js, после импортов
+console.log('='.repeat(50));
+console.log('🚀 Запуск сервера...');
 console.log('🔍 Проверка переменных окружения:');
-console.log('MYSQLHOST:', process.env.MYSQLHOST ? '✅ установлен' : '❌ не установлен');
-console.log('MYSQLUSER:', process.env.MYSQLUSER ? '✅ установлен' : '❌ не установлен');
-console.log('MYSQLDATABASE:', process.env.MYSQLDATABASE ? '✅ установлена' : '❌ не установлена');
+console.log('DATABASE_URL:', process.env.DATABASE_URL ? '✅ установлена' : '❌ не установлена');
+console.log('PORT:', process.env.PORT || '10000 (по умолчанию)');
+console.log('='.repeat(50));
 
 // Настройка CORS
 app.use(cors({
@@ -25,7 +26,7 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Логирование (только в dev)
+// Логирование запросов
 if (process.env.NODE_ENV !== 'production') {
     app.use((req, res, next) => {
         console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
@@ -84,7 +85,7 @@ app.get('/api/db-status', async (req, res) => {
         }
         
         const result = await db.query(
-            'SELECT DATABASE() as database, USER() as user, VERSION() as version'
+            'SELECT DATABASE() as `database`, USER() as `user`, VERSION() as version'
         );
         
         res.json({
@@ -152,30 +153,20 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Инициализация БД при первом запросе
-let dbInitialized = false;
-
-// Middleware для инициализации БД
-app.use(async (req, res, next) => {
-    if (!dbInitialized) {
-        try {
-            await db.initializeDatabase();
-            dbInitialized = true;
-            console.log('✅ База данных инициализирована');
-        } catch (error) {
-            console.error('❌ Ошибка инициализации БД:', error.message);
-        }
-    }
-    next();
-});
-
-// Запуск сервера (для Railway)
-app.listen(PORT, () => {
+// Запуск сервера
+app.listen(PORT, async () => {
     console.log('='.repeat(50));
     console.log(`🚀 Сервер запущен на порту ${PORT}`);
     console.log(`🌐 http://localhost:${PORT}`);
     console.log('='.repeat(50));
+    
+    // Инициализация БД при старте
+    try {
+        await db.initializeDatabase();
+        console.log('✅ Инициализация БД завершена');
+    } catch (error) {
+        console.error('❌ Ошибка инициализации БД:', error.message);
+    }
 });
 
-// Экспорт для Vercel (если нужно)
 module.exports = app;
