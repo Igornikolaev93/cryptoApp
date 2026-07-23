@@ -8,6 +8,12 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+// В начале index.js, после импортов
+console.log('🔍 Проверка переменных окружения:');
+console.log('MYSQLHOST:', process.env.MYSQLHOST ? '✅ установлен' : '❌ не установлен');
+console.log('MYSQLUSER:', process.env.MYSQLUSER ? '✅ установлен' : '❌ не установлен');
+console.log('MYSQLDATABASE:', process.env.MYSQLDATABASE ? '✅ установлена' : '❌ не установлена');
+
 // Настройка CORS
 app.use(cors({
     origin: process.env.FRONTEND_URL || '*',
