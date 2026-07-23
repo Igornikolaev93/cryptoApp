@@ -1,11 +1,12 @@
 const express = require('express');
 const cors = require('cors');
-const db = require('../db');
-const authRoutes = require('../routes/auth');
-const operationRoutes = require('../routes/operations');
+const db = require('./db');  // ← Изменено с '../db' на './db'
+const authRoutes = require('./routes/auth');
+const operationRoutes = require('./routes/operations');
 require('dotenv').config();
 
 const app = express();
+const PORT = process.env.PORT || 10000;
 
 // Настройка CORS
 app.use(cors({
@@ -32,12 +33,12 @@ if (process.env.NODE_ENV !== 'production') {
 
 app.get('/', (req, res) => {
     res.json({
-        message: '🚀 CryptoApp Backend API (Vercel)',
+        message: '🚀 CryptoApp Backend API (Railway)',
         status: 'online',
         version: process.env.npm_package_version || '1.0.0',
         database: db.isConnected() ? '✅ Подключена' : '⏳ Не подключена',
         server_time: new Date().toISOString(),
-        environment: process.env.VERCEL_ENV || 'development'
+        environment: process.env.NODE_ENV || 'development'
     });
 });
 
@@ -57,7 +58,7 @@ app.get('/health', async (req, res) => {
     res.json({
         status: 'OK',
         server: 'running',
-        vercel: true,
+        railway: true,
         database: dbStatus ? 'connected' : 'disconnected',
         timestamp: new Date().toISOString(),
         dbInfo
@@ -162,5 +163,13 @@ app.use(async (req, res, next) => {
     next();
 });
 
-// Экспорт для Vercel
+// Запуск сервера (для Railway)
+app.listen(PORT, () => {
+    console.log('='.repeat(50));
+    console.log(`🚀 Сервер запущен на порту ${PORT}`);
+    console.log(`🌐 http://localhost:${PORT}`);
+    console.log('='.repeat(50));
+});
+
+// Экспорт для Vercel (если нужно)
 module.exports = app;

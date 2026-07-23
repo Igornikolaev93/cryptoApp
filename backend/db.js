@@ -11,7 +11,7 @@ async function initializeDatabase() {
         const host = process.env.DB_HOST || 'rufree53.hostiman.ru';
         const port = parseInt(process.env.DB_PORT) || 3306;
         
-        console.log('🔧 Подключение к MySQL (Vercel)...');
+        console.log('🔧 Подключение к MySQL...');
         console.log(`📋 Хост: ${host}:${port}`);
         console.log(`📋 База: ${process.env.DB_NAME}`);
         console.log(`📋 Пользователь: ${process.env.DB_USER}`);
@@ -27,10 +27,10 @@ async function initializeDatabase() {
             database: process.env.DB_NAME,
             port: port,
             waitForConnections: true,
-            connectionLimit: 5, // Vercel ограничивает
+            connectionLimit: 10,
             queueLimit: 0,
             connectTimeout: 30000,
-            // Включите SSL если требуется
+            // Для внешнего подключения может потребоваться SSL
             ssl: { rejectUnauthorized: false }
         });
 
@@ -49,22 +49,20 @@ async function initializeDatabase() {
         isDatabaseConnected = true;
         connectionAttempts = 0;
 
-        // Keep-alive (Vercel не поддерживает долгие интервалы)
-        if (process.env.VERCEL_ENV !== 'production') {
-            setInterval(async () => {
-                if (!isDatabaseConnected || !pool) return;
-                try {
-                    const conn = await pool.getConnection();
-                    await conn.query('SELECT 1');
-                    conn.release();
-                    console.log('⏰ Keep-alive ping отправлен');
-                } catch (error) {
-                    console.log('⚠️ Потеря связи с БД');
-                    isDatabaseConnected = false;
-                    setTimeout(initializeDatabase, 10000);
-                }
-            }, 3 * 60 * 1000); // Каждые 3 минуты
-        }
+        // Keep-alive каждые 3 минуты
+        setInterval(async () => {
+            if (!isDatabaseConnected || !pool) return;
+            try {
+                const conn = await pool.getConnection();
+                await conn.query('SELECT 1');
+                conn.release();
+                console.log('⏰ Keep-alive ping отправлен');
+            } catch (error) {
+                console.log('⚠️ Потеря связи с БД');
+                isDatabaseConnected = false;
+                setTimeout(initializeDatabase, 10000);
+            }
+        }, 3 * 60 * 1000);
 
         return pool;
     } catch (error) {
