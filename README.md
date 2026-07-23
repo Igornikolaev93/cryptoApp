@@ -39,5 +39,3 @@
 
 ### Шаг 1: Клонирование репозитория
 ```bash
-git clone https://github.com/yourusername/crypto-exchange.git
-cd crypto-exchange
