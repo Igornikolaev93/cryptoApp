@@ -3,12 +3,15 @@ require('dotenv').config();
 
 let pool = null;
 let isDatabaseConnected = false;
+let connectionAttempts = 0;
+const MAX_ATTEMPTS = 5;
 
 async function initializeDatabase() {
     try {
         const databaseUrl = process.env.DATABASE_URL;
         
         console.log('🔧 Подключение к MySQL на Railway...');
+        console.log(`📋 DATABASE_URL: ${databaseUrl ? '✅ установлена' : '❌ не установлена'}`);
 
         if (!databaseUrl) {
             throw new Error('DATABASE_URL не установлена');
@@ -28,8 +31,9 @@ async function initializeDatabase() {
         const connection = await pool.getConnection();
         console.log('✅ Подключение к MySQL успешно!');
         
+        // ✅ ИСПРАВЛЕННЫЙ SQL ЗАПРОС
         const [rows] = await connection.query(
-            'SELECT VERSION() as version, DATABASE() as database, USER() as user'
+            'SELECT VERSION() as version, DATABASE() as `database`, USER() as `user`'
         );
         
         console.log(`📊 База данных: ${rows[0].database}`);
@@ -38,11 +42,12 @@ async function initializeDatabase() {
         
         connection.release();
         isDatabaseConnected = true;
+        connectionAttempts = 0;
 
         // ✅ АВТОМАТИЧЕСКОЕ СОЗДАНИЕ ТАБЛИЦ
         await createTables();
 
-        // Keep-alive
+        // Keep-alive каждые 3 минуты
         setInterval(async () => {
             if (!isDatabaseConnected || !pool) return;
             try {
@@ -59,8 +64,20 @@ async function initializeDatabase() {
 
         return pool;
     } catch (error) {
-        console.error('❌ Ошибка подключения к MySQL:', error.message);
+        console.error('❌ Ошибка подключения к MySQL:');
+        console.error('  - Сообщение:', error.message);
+        console.error('  - Код:', error.code);
+        
         isDatabaseConnected = false;
+        connectionAttempts++;
+        
+        if (connectionAttempts < MAX_ATTEMPTS) {
+            const delay = 5000 * connectionAttempts;
+            console.log(`🔄 Повторная попытка через ${delay/1000}с... (${connectionAttempts}/${MAX_ATTEMPTS})`);
+            setTimeout(initializeDatabase, delay);
+        } else {
+            console.log('❌ Достигнуто максимальное количество попыток подключения');
+        }
         return null;
     }
 }
@@ -131,7 +148,7 @@ async function createTables() {
     }
 }
 
-// Остальные функции query, isConnected, reconnect
+// Остальные функции
 async function query(sql, params = []) {
     if (!pool || !isDatabaseConnected) {
         console.log('⚠️ База данных не подключена, инициализация...');
