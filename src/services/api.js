@@ -3,7 +3,7 @@ import axios from 'axios';
 // Определяем базовый URL в зависимости от окружения
 const getBaseURL = () => {
   if (process.env.NODE_ENV === 'production') {
-    return 'https://cryptoapp-backend-production-b4e6.up.railway.app';
+    return 'https://crypto-app-sandy-six.vercel.app';
   }
   return 'http://localhost:5000';
 };
