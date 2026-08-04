@@ -4,8 +4,9 @@ require('dotenv').config();
 let pool = null;
 let isDatabaseConnected = false;
 let connectionAttempts = 0;
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = 3;
 
+// === ОСНОВНАЯ ФУНКЦИЯ ИНИЦИАЛИЗАЦИИ ===
 async function initializeDatabase() {
     try {
         const databaseUrl = process.env.DATABASE_URL;
@@ -14,15 +15,15 @@ async function initializeDatabase() {
         console.log(`📋 DATABASE_URL: ${databaseUrl ? '✅ установлена' : '❌ не установлена'}`);
 
         if (!databaseUrl) {
-            throw new Error('DATABASE_URL не установлена');
+            console.log('⚠️ DATABASE_URL не найдена, используем fallback режим');
+            isDatabaseConnected = false;
+            return null;
         }
 
         pool = new Pool({
             connectionString: databaseUrl,
             ssl: {
-                rejectUnauthorized: false,
-                // Для Supabase иногда требуется указать кастомный SSL
-                // ca: process.env.SUPABASE_SSL_CERT
+                rejectUnauthorized: false
             },
             max: 10,
             idleTimeoutMillis: 30000,
@@ -30,58 +31,53 @@ async function initializeDatabase() {
         });
 
         // Проверяем подключение
-        const client = await pool.connect();
-        console.log('✅ Подключение к PostgreSQL успешно!');
-        
-        const result = await client.query('SELECT version() as version, current_database() as database, current_user as user');
-        
-        console.log(`📊 База данных: ${result.rows[0].database}`);
-        console.log(`👤 Пользователь: ${result.rows[0].user}`);
-        console.log(`📦 Версия PostgreSQL: ${result.rows[0].version}`);
-        
-        client.release();
-        isDatabaseConnected = true;
-        connectionAttempts = 0;
-
-        // ✅ Автоматическое создание таблиц
-        await createTables();
-
-        // Keep-alive каждые 3 минуты
-        setInterval(async () => {
-            if (!isDatabaseConnected || !pool) return;
-            try {
-                const client = await pool.connect();
-                await client.query('SELECT 1');
-                client.release();
-                console.log('⏰ Keep-alive ping отправлен');
-            } catch (error) {
-                console.log('⚠️ Потеря связи с БД:', error.message);
-                isDatabaseConnected = false;
-                setTimeout(initializeDatabase, 10000);
-            }
-        }, 3 * 60 * 1000);
-
-        return pool;
-    } catch (error) {
-        console.error('❌ Ошибка подключения к PostgreSQL:');
-        console.error('  - Сообщение:', error.message);
-        console.error('  - Код:', error.code);
-        
-        isDatabaseConnected = false;
-        connectionAttempts++;
-        
-        if (connectionAttempts < MAX_ATTEMPTS) {
-            const delay = 5000 * connectionAttempts;
-            console.log(`🔄 Повторная попытка через ${delay/1000}с... (${connectionAttempts}/${MAX_ATTEMPTS})`);
-            setTimeout(initializeDatabase, delay);
-        } else {
-            console.log('❌ Достигнуто максимальное количество попыток подключения');
+        try {
+            const client = await pool.connect();
+            console.log('✅ Подключение к PostgreSQL успешно!');
+            
+            const result = await client.query('SELECT version() as version, current_database() as database, current_user as user');
+            
+            console.log(`📊 База данных: ${result.rows[0].database}`);
+            console.log(`👤 Пользователь: ${result.rows[0].user}`);
+            console.log(`📦 Версия PostgreSQL: ${result.rows[0].version}`);
+            
+            client.release();
+            isDatabaseConnected = true;
+            connectionAttempts = 0;
+            
+            // Создаем таблицы
+            await createTables();
+            
+            // Keep-alive каждые 3 минуты
+            setInterval(async () => {
+                if (!isDatabaseConnected || !pool) return;
+                try {
+                    const client = await pool.connect();
+                    await client.query('SELECT 1');
+                    client.release();
+                    console.log('⏰ Keep-alive ping отправлен');
+                } catch (error) {
+                    console.log('⚠️ Потеря связи с БД:', error.message);
+                    isDatabaseConnected = false;
+                    setTimeout(initializeDatabase, 10000);
+                }
+            }, 3 * 60 * 1000);
+            
+            return pool;
+        } catch (connError) {
+            console.error('❌ Ошибка подключения к PostgreSQL:', connError.message);
+            console.log('⚠️ БД недоступна, приложение будет работать в fallback режиме');
+            isDatabaseConnected = false;
+            return null;
         }
+    } catch (error) {
+        console.error('❌ Ошибка инициализации:', error.message);
+        isDatabaseConnected = false;
         return null;
     }
 }
 
-// ✅ Функция для создания таблиц (PostgreSQL синтаксис)
+// === СОЗДАНИЕ ТАБЛИЦ ===
 async function createTables() {
     try {
         console.log('📝 Проверка и создание таблиц...');
@@ -148,18 +144,15 @@ async function createTables() {
 
     } catch (error) {
         console.error('❌ Ошибка создания таблиц:', error.message);
-        console.error('  - Детали:', error.detail);
     }
 }
 
-// Основная функция для запросов
+// === ОСНОВНАЯ ФУНКЦИЯ ЗАПРОСОВ ===
 async function query(sql, params = []) {
+    // Если БД не подключена, используем fallback
     if (!pool || !isDatabaseConnected) {
-        console.log('⚠️ База данных не подключена, инициализация...');
-        await initializeDatabase();
-        if (!isDatabaseConnected) {
-            throw new Error('База данных не подключена');
-        }
+        console.log('⚠️ База данных не доступна, используем fallback (возвращаем пустые данные)');
+        return { rows: [], rowCount: 0 };
     }
 
     try {
@@ -167,19 +160,29 @@ async function query(sql, params = []) {
         return { rows: result.rows, rowCount: result.rowCount };
     } catch (error) {
         console.error('❌ Ошибка запроса:', error.message);
-        console.error('  - SQL:', sql);
-        console.error('  - Параметры:', params);
-        if (error.code === 'PROTOCOL_CONNECTION_LOST' || error.code === 'ECONNRESET') {
+        console.error('  - SQL:', sql.substring(0, 100));
+        
+        // Если ошибка соединения, пробуем переподключиться
+        if (error.code === 'PROTOCOL_CONNECTION_LOST' || 
+            error.code === 'ECONNRESET' || 
+            error.message.includes('timeout')) {
             isDatabaseConnected = false;
             console.log('🔄 Переподключение к БД...');
             await initializeDatabase();
-            const result = await pool.query(sql, params);
-            return { rows: result.rows, rowCount: result.rowCount };
+            
+            // Повторяем запрос, если подключились
+            if (isDatabaseConnected) {
+                const result = await pool.query(sql, params);
+                return { rows: result.rows, rowCount: result.rowCount };
+            }
         }
-        throw error;
+        
+        // Возвращаем пустой результат вместо ошибки
+        return { rows: [], rowCount: 0 };
     }
 }
 
+// === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 function isConnected() {
     return isDatabaseConnected;
 }
@@ -195,6 +198,7 @@ async function reconnect() {
     return await initializeDatabase();
 }
 
+// === ОБРАБОТЧИКИ ЗАВЕРШЕНИЯ ===
 process.on('SIGTERM', async () => {
     if (pool) {
         await pool.end();
@@ -202,4 +206,18 @@ process.on('SIGTERM', async () => {
     }
 });
 
-module.exports = { query, isConnected, initializeDatabase, reconnect };
+process.on('SIGINT', async () => {
+    if (pool) {
+        await pool.end();
+        console.log('🔒 Пул соединений PostgreSQL закрыт');
+    }
+    process.exit(0);
+});
+
+// === ЭКСПОРТ ===
+module.exports = { 
+    query, 
+    isConnected, 
+    initializeDatabase, 
+    reconnect 
+};
