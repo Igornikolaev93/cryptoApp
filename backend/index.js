@@ -12,19 +12,35 @@ console.log('='.repeat(50));
 console.log('🚀 Запуск сервера...');
 console.log('🔍 Проверка переменных окружения:');
 console.log('DATABASE_URL:', process.env.DATABASE_URL ? '✅ установлена' : '❌ не установлена');
-console.log('🔧 Режим работы:', process.env.DATABASE_URL ? 'БД (Supabase)' : '🧠 ПАМЯТЬ (сессионный режим)');
 console.log('='.repeat(50));
 
-// CORS
+// === НАСТРОЙКА CORS (ДО ВСЕХ МАРШРУТОВ) ===
 app.use(cors({
-     origin: [
-        'https://igornikolaev93.github.io', 
-        'https://crypto-backend.vercel.app' 
+    origin: [
+        'https://igornikolaev93.github.io',
+        'https://crypto-backend.vercel.app',
+        'http://localhost:3000',
+        'http://localhost:3001'
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
-    credentials: true
+    credentials: true,
+    optionsSuccessStatus: 200
 }));
+
+// Дополнительные заголовки для всех ответов
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', 'https://igornikolaev93.github.io');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
+    // Обрабатываем preflight запросы
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+    next();
+});
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
