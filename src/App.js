@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef } from 'react';
-// Импортируем API клиент из правильного файла
 import api from './services/api';
 import './App.css';
 import UserProfile from './UserProfile';
@@ -64,7 +63,6 @@ function App() {
   const isScrolling = useRef(false);
   const scrollTimeout = useRef(null);
 
-  // Загрузка курсов криптовалют
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (token) {
@@ -94,7 +92,6 @@ function App() {
       const data = await response.json();
       setCoins(data);
       
-      // Устанавливаем начальную цену для BTC
       const btcData = data.find(c => c.symbol.toLowerCase() === 'btc');
       if (btcData) {
         setSelectedCrypto(prev => ({
@@ -240,8 +237,8 @@ function App() {
 
       const res = await api.post('/operations', operationData);
       
-      if (res.success === false) {
-        alert(res.message || 'Ошибка при создании операции');
+      if (!res || res.success === false) {
+        alert(res?.message || 'Ошибка при создании операции');
         return;
       }
 
@@ -291,13 +288,16 @@ function App() {
     try {
       const res = await api.post('/auth/login', loginData);
       
-      // ✅ Проверяем успешность ответа
-      if (!res || res.success === false) {
-        alert(res?.message || 'Неверный email или пароль');
+      if (!res) {
+        alert('Ошибка: сервер не отвечает');
+        return;
+      }
+      
+      if (res.success === false) {
+        alert(res.message || 'Неверный email или пароль');
         return;
       }
 
-      // Получаем токен
       const token = res.token;
       if (!token) {
         alert('Ошибка: токен не получен');
@@ -306,10 +306,9 @@ function App() {
 
       localStorage.setItem('token', token);
       
-      // Получаем данные пользователя
       const userRes = await api.get('/auth/me');
-      if (userRes.success === false) {
-        alert(userRes.message || 'Ошибка получения данных пользователя');
+      if (!userRes || userRes.success === false) {
+        alert(userRes?.message || 'Ошибка получения данных пользователя');
         return;
       }
       
@@ -327,8 +326,13 @@ function App() {
     try {
       const res = await api.post('/auth/register', registerData);
       
-      if (!res || res.success === false) {
-        alert(res?.message || 'Ошибка регистрации');
+      if (!res) {
+        alert('Ошибка: сервер не отвечает');
+        return;
+      }
+      
+      if (res.success === false) {
+        alert(res.message || 'Ошибка регистрации');
         return;
       }
 
@@ -353,11 +357,10 @@ function App() {
   const openProfile = async () => {
     try {
       const res = await api.get('/operations');
-      if (res.success === false) {
-        console.warn('Не удалось получить операции:', res.message);
-        setUserOperations([]);
-      } else {
+      if (res && res.success !== false) {
         setUserOperations(res.operations || []);
+      } else {
+        setUserOperations([]);
       }
       setShowProfileModal(true);
     } catch (error) {
