@@ -8,6 +8,9 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 10000;
 
+console.log('🚀 Запуск сервера...');
+console.log('DATABASE_URL:', process.env.DATABASE_URL ? '✅' : '❌');
+
 // CORS
 app.use(cors({
     origin: ['https://igornikolaev93.github.io', 'https://crypto-backend.vercel.app'],
@@ -28,8 +31,21 @@ app.get('/', (req, res) => {
     });
 });
 
+app.get('/health', (req, res) => {
+    res.json({ status: 'OK', server: 'running' });
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/operations', operationRoutes);
 
-// Экспорт для Vercel
+// 404
+app.use('*', (req, res) => {
+    res.status(404).json({
+        success: false,
+        message: 'Маршрут не найден',
+        path: req.originalUrl
+    });
+});
+
+// Экспорт для Vercel (ОБЯЗАТЕЛЬНО!)
 module.exports = app;
