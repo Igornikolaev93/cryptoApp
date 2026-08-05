@@ -12,9 +12,10 @@ console.log('='.repeat(50));
 console.log('🚀 Запуск сервера...');
 console.log('🔍 Проверка переменных окружения:');
 console.log('DATABASE_URL:', process.env.DATABASE_URL ? '✅ установлена' : '❌ не установлена');
+console.log('🔧 Режим работы:', process.env.DATABASE_URL ? 'БД (Supabase)' : '🧠 ПАМЯТЬ (сессионный режим)');
 console.log('='.repeat(50));
 
-// === НАСТРОЙКА CORS (ДО ВСЕХ МАРШРУТОВ) ===
+// === НАСТРОЙКА CORS ===
 app.use(cors({
     origin: [
         'https://igornikolaev93.github.io',
@@ -28,14 +29,13 @@ app.use(cors({
     optionsSuccessStatus: 200
 }));
 
-// Дополнительные заголовки для всех ответов
+// Дополнительные заголовки CORS
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', 'https://igornikolaev93.github.io');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-auth-token');
     res.header('Access-Control-Allow-Credentials', 'true');
     
-    // Обрабатываем preflight запросы
     if (req.method === 'OPTIONS') {
         return res.status(200).end();
     }
