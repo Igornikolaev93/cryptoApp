@@ -3,7 +3,8 @@ import axios from 'axios';
 // Определяем базовый URL в зависимости от окружения
 const getBaseURL = () => {
   if (process.env.NODE_ENV === 'production') {
-    return 'https://crypto-app-sandy-six.vercel.app';
+    // ✅ ИСПРАВЛЕНО: правильный URL бэкенда
+    return 'https://crypto-backend.vercel.app';
   }
   return 'http://localhost:5000';
 };
@@ -42,5 +43,4 @@ api.interceptors.response.use(
   }
 );
 
-// ✅ ВАЖНО: Используйте export default
 export default api;

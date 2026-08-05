@@ -1,10 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 
-// Создание операции (требуется аутентификация)
+// Создание операции
 router.post('/', authMiddleware, async (req, res) => {
     try {
         const {
@@ -20,7 +19,6 @@ router.post('/', authMiddleware, async (req, res) => {
         
         const userId = req.user.id;
         
-        // Валидация
         if (!operation_type || !crypto_currency || !crypto_amount || !fiat_currency || !fiat_amount) {
             return res.status(400).json({
                 success: false,
@@ -28,15 +26,16 @@ router.post('/', authMiddleware, async (req, res) => {
             });
         }
         
-        // Расчет комиссии (1%)
         const fee = fiat_amount * 0.01;
         
+        // PostgreSQL RETURNING вместо insertId
         const result = await db.query(
             `INSERT INTO operations (
                 user_id, operation_type, crypto_currency, crypto_amount,
-                fiat_currency, fiat_amount, fee, payment_method,
-                wallet_address, status, notes
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                fiat_currency, fiat_amount, fee_amount, fee_currency,
+                payment_method, wallet_address, status, notes
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            RETURNING id`,
             [
                 userId,
                 operation_type,
@@ -45,6 +44,7 @@ router.post('/', authMiddleware, async (req, res) => {
                 fiat_currency,
                 fiat_amount,
                 fee,
+                fiat_currency,
                 payment_method || null,
                 wallet_address || null,
                 'pending',
@@ -55,10 +55,10 @@ router.post('/', authMiddleware, async (req, res) => {
         res.status(201).json({
             success: true,
             message: 'Операция создана',
-            operationId: result.rows.insertId
+            operationId: result.rows[0].id
         });
     } catch (error) {
-        console.error('Create operation error:', error);
+        console.error('Create operation error:', error.message);
         res.status(500).json({
             success: false,
             message: 'Ошибка создания операции'
@@ -66,24 +66,26 @@ router.post('/', authMiddleware, async (req, res) => {
     }
 });
 
-// Получение всех операций пользователя
+// Получение операций пользователя
 router.get('/', authMiddleware, async (req, res) => {
     try {
         const userId = req.user.id;
         const { status, limit = 50, offset = 0 } = req.query;
         
-        let query = 'SELECT * FROM operations WHERE user_id = ?';
+        let queryText = 'SELECT * FROM operations WHERE user_id = $1';
         const params = [userId];
+        let paramIndex = 2;
         
         if (status) {
-            query += ' AND status = ?';
+            queryText += ` AND status = $${paramIndex}`;
             params.push(status);
+            paramIndex++;
         }
         
-        query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        queryText += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
         params.push(parseInt(limit), parseInt(offset));
         
-        const result = await db.query(query, params);
+        const result = await db.query(queryText, params);
         
         res.json({
             success: true,
@@ -91,7 +93,7 @@ router.get('/', authMiddleware, async (req, res) => {
             count: result.rowCount
         });
     } catch (error) {
-        console.error('Get operations error:', error);
+        console.error('Get operations error:', error.message);
         res.status(500).json({
             success: false,
             message: 'Ошибка получения операций'
@@ -106,7 +108,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
         const operationId = req.params.id;
         
         const result = await db.query(
-            'SELECT * FROM operations WHERE id = ? AND user_id = ?',
+            'SELECT * FROM operations WHERE id = $1 AND user_id = $2',
             [operationId, userId]
         );
         
@@ -122,7 +124,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
             operation: result.rows[0]
         });
     } catch (error) {
-        console.error('Get operation error:', error);
+        console.error('Get operation error:', error.message);
         res.status(500).json({
             success: false,
             message: 'Ошибка получения операции'
@@ -136,9 +138,8 @@ router.patch('/:id/cancel', authMiddleware, async (req, res) => {
         const userId = req.user.id;
         const operationId = req.params.id;
         
-        // Проверка, что операция существует и принадлежит пользователю
         const checkResult = await db.query(
-            'SELECT status FROM operations WHERE id = ? AND user_id = ?',
+            'SELECT status FROM operations WHERE id = $1 AND user_id = $2',
             [operationId, userId]
         );
         
@@ -157,8 +158,8 @@ router.patch('/:id/cancel', authMiddleware, async (req, res) => {
         }
         
         await db.query(
-            'UPDATE operations SET status = "cancelled" WHERE id = ? AND user_id = ?',
-            [operationId, userId]
+            'UPDATE operations SET status = $1 WHERE id = $2 AND user_id = $3',
+            ['cancelled', operationId, userId]
         );
         
         res.json({
@@ -166,7 +167,7 @@ router.patch('/:id/cancel', authMiddleware, async (req, res) => {
             message: 'Операция отменена'
         });
     } catch (error) {
-        console.error('Cancel operation error:', error);
+        console.error('Cancel operation error:', error.message);
         res.status(500).json({
             success: false,
             message: 'Ошибка отмены операции'

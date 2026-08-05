@@ -12,10 +12,8 @@ console.log('='.repeat(50));
 console.log('🚀 Запуск сервера...');
 console.log('🔍 Проверка переменных окружения:');
 console.log('DATABASE_URL:', process.env.DATABASE_URL ? '✅ установлена' : '❌ не установлена');
-console.log('PORT:', process.env.PORT || '10000 (по умолчанию)');
 console.log('='.repeat(50));
 
-// Настройка CORS
 app.use(cors({
     origin: process.env.FRONTEND_URL || '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -26,21 +24,10 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Логирование запросов
-if (process.env.NODE_ENV !== 'production') {
-    app.use((req, res, next) => {
-        console.log(`${new Date().toISOString()} ${req.method} ${req.url}`);
-        next();
-    });
-}
-
-// ============================================
 // Системные эндпоинты
-// ============================================
-
 app.get('/', (req, res) => {
     res.json({
-        message: '🚀 CryptoApp Backend API (Railway)',
+        message: '🚀 CryptoApp Backend API',
         status: 'online',
         version: process.env.npm_package_version || '1.0.0',
         database: db.isConnected() ? '✅ Подключена' : '⏳ Не подключена',
@@ -51,24 +38,11 @@ app.get('/', (req, res) => {
 
 app.get('/health', async (req, res) => {
     const dbStatus = db.isConnected();
-    let dbInfo = { connected: dbStatus };
-    
-    if (dbStatus) {
-        try {
-            const result = await db.query('SELECT 1 as test');
-            dbInfo = { ...dbInfo, test: 'success' };
-        } catch (error) {
-            dbInfo = { ...dbInfo, test: 'failed', error: error.message };
-        }
-    }
-    
     res.json({
         status: 'OK',
         server: 'running',
-        railway: true,
         database: dbStatus ? 'connected' : 'disconnected',
-        timestamp: new Date().toISOString(),
-        dbInfo
+        timestamp: new Date().toISOString()
     });
 });
 
@@ -85,7 +59,7 @@ app.get('/api/db-status', async (req, res) => {
         }
         
         const result = await db.query(
-            'SELECT DATABASE() as `database`, USER() as `user`, VERSION() as version'
+            'SELECT current_database() as database, current_user as user, version() as version'
         );
         
         res.json({
@@ -106,34 +80,11 @@ app.get('/api/db-status', async (req, res) => {
     }
 });
 
-app.post('/api/db-reconnect', async (req, res) => {
-    try {
-        await db.reconnect();
-        res.json({
-            success: true,
-            message: 'Переподключение выполнено',
-            connected: db.isConnected(),
-            timestamp: new Date().toISOString()
-        });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// ============================================
-// Основные маршруты API
-// ============================================
-
+// Основные маршруты
 app.use('/api/auth', authRoutes);
 app.use('/api/operations', operationRoutes);
 
-// ============================================
-// Обработка 404
-// ============================================
-
+// Обработка ошибок
 app.use('*', (req, res) => {
     res.status(404).json({
         success: false,
@@ -142,25 +93,20 @@ app.use('*', (req, res) => {
     });
 });
 
-// Глобальный обработчик ошибок
 app.use((err, req, res, next) => {
     console.error('❌ Ошибка сервера:', err.stack);
-    
     res.status(err.status || 500).json({
         success: false,
-        message: err.message || 'Внутренняя ошибка сервера',
-        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+        message: err.message || 'Внутренняя ошибка сервера'
     });
 });
 
-// Запуск сервера
+// Запуск
 app.listen(PORT, async () => {
     console.log('='.repeat(50));
     console.log(`🚀 Сервер запущен на порту ${PORT}`);
-    console.log(`🌐 http://localhost:${PORT}`);
     console.log('='.repeat(50));
     
-    // Инициализация БД при старте
     try {
         await db.initializeDatabase();
         console.log('✅ Инициализация БД завершена');
