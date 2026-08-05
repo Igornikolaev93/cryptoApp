@@ -3,7 +3,7 @@ const router = express.Router();
 const db = require('../db');
 const authMiddleware = require('../middleware/auth');
 
-// Создание операции
+// === СОЗДАНИЕ ОПЕРАЦИИ ===
 router.post('/', authMiddleware, async (req, res) => {
     try {
         const {
@@ -26,9 +26,8 @@ router.post('/', authMiddleware, async (req, res) => {
             });
         }
         
-        const fee = fiat_amount * 0.01;
+        const fee = parseFloat(fiat_amount) * 0.01;
         
-        // PostgreSQL RETURNING вместо insertId
         const result = await db.query(
             `INSERT INTO operations (
                 user_id, operation_type, crypto_currency, crypto_amount,
@@ -39,12 +38,12 @@ router.post('/', authMiddleware, async (req, res) => {
             [
                 userId,
                 operation_type,
-                crypto_currency,
-                crypto_amount,
-                fiat_currency,
-                fiat_amount,
+                crypto_currency.toUpperCase(),
+                parseFloat(crypto_amount),
+                fiat_currency.toUpperCase(),
+                parseFloat(fiat_amount),
                 fee,
-                fiat_currency,
+                fiat_currency.toUpperCase(),
                 payment_method || null,
                 wallet_address || null,
                 'pending',
@@ -55,10 +54,20 @@ router.post('/', authMiddleware, async (req, res) => {
         res.status(201).json({
             success: true,
             message: 'Операция создана',
-            operationId: result.rows[0].id
+            operationId: result.rows[0].id,
+            operation: {
+                id: result.rows[0].id,
+                type: operation_type,
+                crypto: crypto_currency,
+                amount: crypto_amount,
+                fiat: fiat_currency,
+                fiat_amount: fiat_amount,
+                fee: fee,
+                status: 'pending'
+            }
         });
     } catch (error) {
-        console.error('Create operation error:', error.message);
+        console.error('❌ Ошибка создания операции:', error.message);
         res.status(500).json({
             success: false,
             message: 'Ошибка создания операции'
@@ -66,7 +75,7 @@ router.post('/', authMiddleware, async (req, res) => {
     }
 });
 
-// Получение операций пользователя
+// === ПОЛУЧЕНИЕ ВСЕХ ОПЕРАЦИЙ ===
 router.get('/', authMiddleware, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -93,7 +102,7 @@ router.get('/', authMiddleware, async (req, res) => {
             count: result.rowCount
         });
     } catch (error) {
-        console.error('Get operations error:', error.message);
+        console.error('❌ Ошибка получения операций:', error.message);
         res.status(500).json({
             success: false,
             message: 'Ошибка получения операций'
@@ -101,7 +110,7 @@ router.get('/', authMiddleware, async (req, res) => {
     }
 });
 
-// Получение конкретной операции
+// === ПОЛУЧЕНИЕ КОНКРЕТНОЙ ОПЕРАЦИИ ===
 router.get('/:id', authMiddleware, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -124,7 +133,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
             operation: result.rows[0]
         });
     } catch (error) {
-        console.error('Get operation error:', error.message);
+        console.error('❌ Ошибка получения операции:', error.message);
         res.status(500).json({
             success: false,
             message: 'Ошибка получения операции'
@@ -132,7 +141,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
     }
 });
 
-// Отмена операции
+// === ОТМЕНА ОПЕРАЦИИ ===
 router.patch('/:id/cancel', authMiddleware, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -167,10 +176,38 @@ router.patch('/:id/cancel', authMiddleware, async (req, res) => {
             message: 'Операция отменена'
         });
     } catch (error) {
-        console.error('Cancel operation error:', error.message);
+        console.error('❌ Ошибка отмены операции:', error.message);
         res.status(500).json({
             success: false,
             message: 'Ошибка отмены операции'
+        });
+    }
+});
+
+// === СТАТИСТИКА ОПЕРАЦИЙ (для отладки) ===
+router.get('/stats/summary', authMiddleware, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        
+        const result = await db.query(
+            `SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
+                SUM(fiat_amount) as total_amount
+            FROM operations WHERE user_id = $1`,
+            [userId]
+        );
+        
+        res.json({
+            success: true,
+            stats: result.rows[0]
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка получения статистики'
         });
     }
 });

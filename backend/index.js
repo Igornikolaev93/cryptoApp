@@ -12,8 +12,10 @@ console.log('='.repeat(50));
 console.log('🚀 Запуск сервера...');
 console.log('🔍 Проверка переменных окружения:');
 console.log('DATABASE_URL:', process.env.DATABASE_URL ? '✅ установлена' : '❌ не установлена');
+console.log('🔧 Режим работы:', process.env.DATABASE_URL ? 'БД (Supabase)' : '🧠 ПАМЯТЬ (сессионный режим)');
 console.log('='.repeat(50));
 
+// CORS
 app.use(cors({
     origin: process.env.FRONTEND_URL || '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -24,24 +26,25 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Системные эндпоинты
+// === СИСТЕМНЫЕ ЭНДПОИНТЫ ===
 app.get('/', (req, res) => {
+    const isDbConnected = db.isConnected();
     res.json({
         message: '🚀 CryptoApp Backend API',
         status: 'online',
-        version: process.env.npm_package_version || '1.0.0',
-        database: db.isConnected() ? '✅ Подключена' : '⏳ Не подключена',
+        version: '1.0.0',
+        database: isDbConnected ? '✅ Подключена' : '🧠 Режим памяти',
+        storage_mode: isDbConnected ? 'Supabase PostgreSQL' : 'In-Memory (Session)',
         server_time: new Date().toISOString(),
         environment: process.env.NODE_ENV || 'development'
     });
 });
 
 app.get('/health', async (req, res) => {
-    const dbStatus = db.isConnected();
     res.json({
         status: 'OK',
         server: 'running',
-        database: dbStatus ? 'connected' : 'disconnected',
+        database: db.isConnected() ? 'connected' : 'memory_mode',
         timestamp: new Date().toISOString()
     });
 });
@@ -49,11 +52,18 @@ app.get('/health', async (req, res) => {
 app.get('/api/db-status', async (req, res) => {
     try {
         const connected = db.isConnected();
+        
         if (!connected) {
+            const storage = db.getStorage ? db.getStorage() : null;
             return res.json({
-                success: false,
+                success: true,
                 connected: false,
-                message: 'База данных не подключена',
+                mode: 'memory',
+                message: 'Используется временное хранилище в памяти',
+                stats: storage ? {
+                    users: storage.users.length,
+                    operations: storage.operations.length
+                } : null,
                 timestamp: new Date().toISOString()
             });
         }
@@ -65,6 +75,7 @@ app.get('/api/db-status', async (req, res) => {
         res.json({
             success: true,
             connected: true,
+            mode: 'database',
             database: result.rows[0]?.database || 'unknown',
             user: result.rows[0]?.user || 'unknown',
             version: result.rows[0]?.version || 'unknown',
@@ -80,11 +91,11 @@ app.get('/api/db-status', async (req, res) => {
     }
 });
 
-// Основные маршруты
+// === ОСНОВНЫЕ МАРШРУТЫ ===
 app.use('/api/auth', authRoutes);
 app.use('/api/operations', operationRoutes);
 
-// Обработка ошибок
+// === ОБРАБОТКА 404 ===
 app.use('*', (req, res) => {
     res.status(404).json({
         success: false,
@@ -93,6 +104,7 @@ app.use('*', (req, res) => {
     });
 });
 
+// === ГЛОБАЛЬНЫЙ ОБРАБОТЧИК ОШИБОК ===
 app.use((err, req, res, next) => {
     console.error('❌ Ошибка сервера:', err.stack);
     res.status(err.status || 500).json({
@@ -101,17 +113,19 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Запуск
+// === ЗАПУСК ===
 app.listen(PORT, async () => {
     console.log('='.repeat(50));
     console.log(`🚀 Сервер запущен на порту ${PORT}`);
+    console.log(`🌐 http://localhost:${PORT}`);
     console.log('='.repeat(50));
     
     try {
         await db.initializeDatabase();
-        console.log('✅ Инициализация БД завершена');
+        console.log('✅ Инициализация завершена');
+        console.log(`📊 Режим: ${db.isConnected() ? 'База данных' : 'Память (сессионный)'}`);
     } catch (error) {
-        console.error('❌ Ошибка инициализации БД:', error.message);
+        console.error('❌ Ошибка инициализации:', error.message);
     }
 });
 

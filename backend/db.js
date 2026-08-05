@@ -4,6 +4,15 @@ require('dotenv').config();
 let pool = null;
 let isDatabaseConnected = false;
 
+// === ВРЕМЕННОЕ ХРАНИЛИЩЕ В ПАМЯТИ (FALLBACK) ===
+const memoryStorage = {
+    users: [],
+    operations: [],
+    sessions: {},
+    idCounter: 1
+};
+
+// === ОСНОВНАЯ ФУНКЦИЯ ИНИЦИАЛИЗАЦИИ ===
 async function initializeDatabase() {
     try {
         const databaseUrl = process.env.DATABASE_URL;
@@ -12,7 +21,7 @@ async function initializeDatabase() {
         console.log(`📋 DATABASE_URL: ${databaseUrl ? '✅ установлена' : '❌ не установлена'}`);
 
         if (!databaseUrl) {
-            console.log('⚠️ DATABASE_URL не найдена');
+            console.log('⚠️ DATABASE_URL не найдена, используем MEMORY STORAGE');
             isDatabaseConnected = false;
             return null;
         }
@@ -27,43 +36,21 @@ async function initializeDatabase() {
 
         const client = await pool.connect();
         console.log('✅ Подключение к PostgreSQL успешно!');
-        
-        const result = await client.query('SELECT version() as version, current_database() as database, current_user as user');
-        
-        console.log(`📊 База данных: ${result.rows[0].database}`);
-        console.log(`👤 Пользователь: ${result.rows[0].user}`);
-        console.log(`📦 Версия PostgreSQL: ${result.rows[0].version}`);
-        
         client.release();
         isDatabaseConnected = true;
 
         await createTables();
-
-        setInterval(async () => {
-            if (!isDatabaseConnected || !pool) return;
-            try {
-                const client = await pool.connect();
-                await client.query('SELECT 1');
-                client.release();
-                console.log('⏰ Keep-alive ping отправлен');
-            } catch (error) {
-                console.log('⚠️ Потеря связи с БД:', error.message);
-                isDatabaseConnected = false;
-            }
-        }, 3 * 60 * 1000);
-
         return pool;
     } catch (error) {
-        console.error('❌ Ошибка подключения:', error.message);
+        console.error('❌ Ошибка подключения, используем MEMORY STORAGE:', error.message);
         isDatabaseConnected = false;
         return null;
     }
 }
 
+// === СОЗДАНИЕ ТАБЛИЦ ===
 async function createTables() {
     try {
-        console.log('📝 Проверка и создание таблиц...');
-
         await query(`
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -114,24 +101,142 @@ async function createTables() {
     }
 }
 
+// === ОСНОВНАЯ ФУНКЦИЯ ЗАПРОСОВ С FALLBACK ===
 async function query(sql, params = []) {
-    if (!pool || !isDatabaseConnected) {
-        console.log('⚠️ База данных не доступна');
-        return { rows: [], rowCount: 0 };
+    // Если БД подключена, используем её
+    if (pool && isDatabaseConnected) {
+        try {
+            const result = await pool.query(sql, params);
+            return { rows: result.rows, rowCount: result.rowCount };
+        } catch (error) {
+            console.error('❌ Ошибка запроса к БД:', error.message);
+            console.log('⚠️ Переключаемся на MEMORY STORAGE');
+            isDatabaseConnected = false;
+            return memoryQuery(sql, params);
+        }
     }
-
-    try {
-        const result = await pool.query(sql, params);
-        return { rows: result.rows, rowCount: result.rowCount };
-    } catch (error) {
-        console.error('❌ Ошибка запроса:', error.message);
-        console.error('  - SQL:', sql.substring(0, 100));
-        return { rows: [], rowCount: 0 };
-    }
+    
+    // Используем память
+    return memoryQuery(sql, params);
 }
 
+// === FALLBACK: ЗАПРОСЫ В ПАМЯТИ ===
+function memoryQuery(sql, params = []) {
+    console.log('📝 MEMORY STORAGE: Выполнение запроса');
+    
+    const sqlLower = sql.toLowerCase().trim();
+    
+    // --- SELECT ---
+    if (sqlLower.startsWith('select')) {
+        // Поиск пользователей
+        if (sqlLower.includes('from users')) {
+            if (params.length > 0) {
+                const searchValue = params[0];
+                const filtered = memoryStorage.users.filter(u => 
+                    u.email === searchValue || u.username === searchValue
+                );
+                return { rows: filtered, rowCount: filtered.length };
+            }
+            return { rows: memoryStorage.users, rowCount: memoryStorage.users.length };
+        }
+        
+        // Поиск операций
+        if (sqlLower.includes('from operations')) {
+            if (params.length > 0) {
+                const userId = params[0];
+                const filtered = memoryStorage.operations.filter(o => o.user_id === userId);
+                return { rows: filtered, rowCount: filtered.length };
+            }
+            return { rows: memoryStorage.operations, rowCount: memoryStorage.operations.length };
+        }
+        
+        return { rows: [], rowCount: 0 };
+    }
+    
+    // --- INSERT ---
+    if (sqlLower.startsWith('insert')) {
+        // Создание пользователя
+        if (sqlLower.includes('into users')) {
+            const [username, email, hashed_password, full_name, phone] = params;
+            const newUser = {
+                id: memoryStorage.idCounter++,
+                username,
+                email,
+                hashed_password,
+                full_name: full_name || null,
+                phone: phone || null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+                last_login: null,
+                is_active: true,
+                is_verified: false,
+                is_admin: false,
+                preferred_fiat: 'USD'
+            };
+            memoryStorage.users.push(newUser);
+            console.log('✅ MEMORY: Пользователь создан, ID:', newUser.id);
+            return { rows: [{ id: newUser.id }], rowCount: 1 };
+        }
+        
+        // Создание операции
+        if (sqlLower.includes('into operations')) {
+            const [user_id, operation_type, crypto_currency, crypto_amount, 
+                   fiat_currency, fiat_amount, fee, payment_method, 
+                   wallet_address, status, notes] = params;
+            const newOperation = {
+                id: memoryStorage.idCounter++,
+                user_id,
+                operation_type,
+                crypto_currency,
+                crypto_amount: parseFloat(crypto_amount),
+                fiat_currency,
+                fiat_amount: parseFloat(fiat_amount),
+                fee_amount: parseFloat(fee) || 0,
+                fee_currency: fiat_currency,
+                payment_method: payment_method || null,
+                wallet_address: wallet_address || null,
+                status: status || 'pending',
+                notes: notes || null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+            memoryStorage.operations.push(newOperation);
+            console.log('✅ MEMORY: Операция создана, ID:', newOperation.id);
+            return { rows: [{ id: newOperation.id }], rowCount: 1 };
+        }
+        return { rows: [{ id: memoryStorage.idCounter++ }], rowCount: 1 };
+    }
+    
+    // --- UPDATE ---
+    if (sqlLower.startsWith('update')) {
+        // Обновление пользователя (например, last_login)
+        if (sqlLower.includes('users')) {
+            const userId = params[params.length - 1]; // Последний параметр обычно id
+            const user = memoryStorage.users.find(u => u.id === userId);
+            if (user) {
+                user.last_login = new Date().toISOString();
+                console.log('✅ MEMORY: Обновлен пользователь, ID:', userId);
+            }
+        }
+        return { rows: [], rowCount: 1 };
+    }
+    
+    // --- DELETE ---
+    if (sqlLower.startsWith('delete')) {
+        return { rows: [], rowCount: 0 };
+    }
+    
+    console.log('⚠️ MEMORY: Неподдерживаемый запрос:', sql.substring(0, 50));
+    return { rows: [], rowCount: 0 };
+}
+
+// === ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ===
 function isConnected() {
     return isDatabaseConnected;
+}
+
+function getStorage() {
+    return memoryStorage;
 }
 
 async function reconnect() {
@@ -143,4 +248,11 @@ async function reconnect() {
     return await initializeDatabase();
 }
 
-module.exports = { query, isConnected, initializeDatabase, reconnect };
+module.exports = { 
+    query, 
+    isConnected, 
+    initializeDatabase, 
+    reconnect,
+    getStorage,
+    memoryStorage
+};

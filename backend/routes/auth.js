@@ -4,14 +4,14 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const db = require('../db');
 
-// Регистрация
+// === РЕГИСТРАЦИЯ ===
 router.post('/register', async (req, res) => {
     try {
         const { username, email, password, full_name, phone } = req.body;
         
         console.log('📝 Попытка регистрации:', { username, email });
 
-        // Проверка существования пользователя (PostgreSQL синтаксис $1, $2)
+        // Проверяем, есть ли пользователь
         const existingUser = await db.query(
             'SELECT * FROM users WHERE email = $1 OR username = $2',
             [email, username]
@@ -26,20 +26,27 @@ router.post('/register', async (req, res) => {
         
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        // PostgreSQL RETURNING вместо insertId
         const result = await db.query(
             `INSERT INTO users (username, email, hashed_password, full_name, phone) 
              VALUES ($1, $2, $3, $4, $5) RETURNING id, username, email`,
             [username, email, hashedPassword, full_name || null, phone || null]
         );
         
+        // Создаем сессию
+        const token = jwt.sign(
+            { id: result.rows[0].id, email: result.rows[0].email },
+            process.env.JWT_SECRET || 'session_secret_key',
+            { expiresIn: '7d' }
+        );
+        
         res.status(201).json({
             success: true,
             message: 'Регистрация прошла успешно',
-            user: result.rows[0] // PostgreSQL возвращает данные через rows[0]
+            user: result.rows[0],
+            token
         });
     } catch (error) {
-        console.error('Registration error:', error.message);
+        console.error('❌ Ошибка регистрации:', error.message);
         res.status(500).json({
             success: false,
             message: 'Ошибка регистрации'
@@ -47,7 +54,7 @@ router.post('/register', async (req, res) => {
     }
 });
 
-// Вход
+// === ВХОД ===
 router.post('/login', async (req, res) => {
     try {
         const { email, password } = req.body;
@@ -78,11 +85,11 @@ router.post('/login', async (req, res) => {
         
         const token = jwt.sign(
             { id: user.id, email: user.email },
-            process.env.JWT_SECRET || 'secret_key',
+            process.env.JWT_SECRET || 'session_secret_key',
             { expiresIn: '7d' }
         );
         
-        // PostgreSQL NOW() работает
+        // Обновляем время входа
         await db.query(
             'UPDATE users SET last_login = NOW() WHERE id = $1',
             [user.id]
@@ -100,7 +107,7 @@ router.post('/login', async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Login error:', error.message);
+        console.error('❌ Ошибка входа:', error.message);
         res.status(500).json({
             success: false,
             message: 'Ошибка входа'
@@ -108,7 +115,7 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// Получение информации о пользователе
+// === ПОЛУЧЕНИЕ ТЕКУЩЕГО ПОЛЬЗОВАТЕЛЯ ===
 router.get('/me', async (req, res) => {
     try {
         const token = req.headers['x-auth-token'];
@@ -119,7 +126,7 @@ router.get('/me', async (req, res) => {
             });
         }
         
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret_key');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'session_secret_key');
         const userResult = await db.query(
             'SELECT id, username, email, full_name, phone, is_verified, created_at FROM users WHERE id = $1',
             [decoded.id]
@@ -137,16 +144,42 @@ router.get('/me', async (req, res) => {
             user: userResult.rows[0]
         });
     } catch (error) {
-        console.error('Get user error:', error.message);
-        if (error.name === 'JsonWebTokenError') {
-            return res.status(401).json({
-                success: false,
-                message: 'Недействительный токен'
-            });
-        }
+        console.error('❌ Ошибка получения пользователя:', error.message);
         res.status(500).json({
             success: false,
             message: 'Ошибка получения данных пользователя'
+        });
+    }
+});
+
+// === ВЫХОД (локально) ===
+router.post('/logout', async (req, res) => {
+    try {
+        // Клиент сам удаляет токен
+        res.json({
+            success: true,
+            message: 'Выход выполнен'
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка выхода'
+        });
+    }
+});
+
+// === ПОЛУЧЕНИЕ ВСЕХ ПОЛЬЗОВАТЕЛЕЙ (для отладки) ===
+router.get('/users', async (req, res) => {
+    try {
+        const result = await db.query('SELECT id, username, email, full_name, created_at FROM users');
+        res.json({
+            success: true,
+            users: result.rows
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Ошибка получения пользователей'
         });
     }
 });
