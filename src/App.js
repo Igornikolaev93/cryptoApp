@@ -63,24 +63,23 @@ function App() {
   const isScrolling = useRef(false);
   const scrollTimeout = useRef(null);
 
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (token) {
-      api.defaults.headers.common['x-auth-token'] = token;
+useEffect(() => {
+  const token = localStorage.getItem('token');
+  if (token && api.defaults) {
+    api.defaults.headers.common['x-auth-token'] = token;
+  }
+
+  fetchCoins();
+  window.addEventListener('scroll', handleScroll);
+
+  return () => {
+    window.removeEventListener('scroll', handleScroll);
+    if (scrollTimeout.current) {
+      clearTimeout(scrollTimeout.current);
     }
-
-    fetchCoins();
-
-    window.addEventListener('scroll', handleScroll);
-
-    return () => {
-      window.removeEventListener('scroll', handleScroll);
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, []);
 
   const fetchCoins = async () => {
     try {
