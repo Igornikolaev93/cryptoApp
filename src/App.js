@@ -238,7 +238,12 @@ function App() {
         status: 'pending'
       };
 
-      await api.post('/operations', operationData);
+      const res = await api.post('/operations', operationData);
+      
+      if (res.success === false) {
+        alert(res.message || 'Ошибка при создании операции');
+        return;
+      }
 
       alert(`Заявка на вывод ${cryptoAmount} ${selectedCrypto.symbol} успешно создана!`);
       setShowWithdrawalModal(false);
@@ -252,11 +257,7 @@ function App() {
       resetInputValues();
     } catch (error) {
       console.error('Error creating operation:', error);
-      if (error.response?.data?.message) {
-        alert(`Ошибка: ${error.response.data.message}`);
-      } else {
-        alert('Ошибка при создании операции. Пожалуйста, попробуйте позже.');
-      }
+      alert('Ошибка при создании операции. Пожалуйста, попробуйте позже.');
     }
   };
 
@@ -289,41 +290,55 @@ function App() {
     e.preventDefault();
     try {
       const res = await api.post('/auth/login', loginData);
-      localStorage.setItem('token', res.data.token);
-      api.defaults.headers.common['x-auth-token'] = res.data.token;
       
-      // Fetch user data
-      const userRes = await api.get('/auth/me');
-      setUser(userRes.data);
+      // ✅ Проверяем успешность ответа
+      if (!res || res.success === false) {
+        alert(res?.message || 'Неверный email или пароль');
+        return;
+      }
 
+      // Получаем токен
+      const token = res.token;
+      if (!token) {
+        alert('Ошибка: токен не получен');
+        return;
+      }
+
+      localStorage.setItem('token', token);
+      
+      // Получаем данные пользователя
+      const userRes = await api.get('/auth/me');
+      if (userRes.success === false) {
+        alert(userRes.message || 'Ошибка получения данных пользователя');
+        return;
+      }
+      
+      setUser(userRes.user);
       setShowLoginModal(false);
-      // Открываем профиль после успешного входа
       await openProfile();
     } catch (error) {
       console.error('Login failed:', error);
-      if (error.response?.data?.detail) {
-        alert(error.response.data.detail);
-      } else {
-        alert('Неверный email или пароль');
-      }
+      alert('Неверный email или пароль');
     }
   };
 
   const handleRegister = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/auth/register', registerData);
+      const res = await api.post('/auth/register', registerData);
+      
+      if (!res || res.success === false) {
+        alert(res?.message || 'Ошибка регистрации');
+        return;
+      }
+
       alert('Регистрация прошла успешно! Теперь вы можете войти в систему.');
       setShowRegisterModal(false);
       setShowLoginModal(true);
       setRegisterData({ username: '', email: '', password: '' });
     } catch (error) {
       console.error('Registration failed:', error);
-      if (error.response?.data?.detail) {
-        alert(error.response.data.detail);
-      } else {
-        alert('Ошибка регистрации. Пожалуйста, попробуйте позже.');
-      }
+      alert('Ошибка регистрации. Пожалуйста, попробуйте позже.');
     }
   };
 
@@ -338,13 +353,17 @@ function App() {
   const openProfile = async () => {
     try {
       const res = await api.get('/operations');
-      setUserOperations(res.data);
+      if (res.success === false) {
+        console.warn('Не удалось получить операции:', res.message);
+        setUserOperations([]);
+      } else {
+        setUserOperations(res.operations || []);
+      }
       setShowProfileModal(true);
     } catch (error) {
       console.error('Error fetching operations:', error);
-      if (error.response?.status === 401) {
-        handleLogout();
-      }
+      setUserOperations([]);
+      setShowProfileModal(true);
     }
   };
 
