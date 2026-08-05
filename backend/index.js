@@ -17,7 +17,10 @@ console.log('='.repeat(50));
 
 // CORS
 app.use(cors({
-    origin: process.env.FRONTEND_URL || '*',
+     origin: [
+        'https://igornikolaev93.github.io', 
+        'https://crypto-backend.vercel.app' 
+    ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],
     credentials: true
