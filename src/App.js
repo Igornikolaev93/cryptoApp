@@ -347,7 +347,10 @@ useEffect(() => {
 
   const handleLogout = () => {
     localStorage.removeItem('token');
+    
+     if (api && api.defaults && api.defaults.headers) {
     delete api.defaults.headers.common['x-auth-token'];
+  }
     setUser(null);
     setUserOperations([]);
     setShowProfileModal(false);
